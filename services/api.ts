@@ -1,0 +1,93 @@
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '../constants/config';
+import { useAuthStore } from '../store/authStore';
+
+const api = axios.create({
+  baseURL: API_URL,
+  timeout: 10000,
+});
+
+// Interceptor: Add JWT token to Authorization header
+api.interceptors.request.use(
+  async (config) => {
+    const token = await AsyncStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Interceptor: Handle 401 errors (unauthorized)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const { logout } = useAuthStore.getState();
+      await logout();
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Auth APIs
+export const authApi = {
+  login: (data: any) => api.post('/auth/login', data),
+  register: (data: any) => api.post('/auth/register', data),
+  getProfile: () => api.get('/auth/profile'),
+};
+
+// Barns APIs
+export const barnApi = {
+  getAll: () => api.get('/barns'),
+  getOne: (id: number) => api.get(`/barns/${id}`),
+  create: (data: any) => api.post('/barns', data),
+  update: (id: number, data: any) => api.put(`/barns/${id}`, data),
+};
+
+// Devices APIs
+export const deviceApi = {
+  getBarnDevices: (barnId: number) => api.get(`/devices/barn/${barnId}`),
+  control: (data: any) => api.post('/devices/control', data),
+  getLogs: (deviceId: number) => api.get(`/devices/${deviceId}/logs`),
+};
+
+// Flocks APIs
+export const flockApi = {
+  getBarnFlocks: (barnId: number) => api.get(`/flocks/barn/${barnId}`),
+  create: (data: any) => api.post('/flocks', data),
+};
+
+// Feed APIs
+export const feedApi = {
+  getCalculations: (barnId: number) => api.get(`/feed/calculations/${barnId}`),
+  logFeed: (data: any) => api.post('/feed/log', data),
+};
+
+// Environment APIs
+export const environmentApi = {
+  getLogs: (barnId: number) => api.get(`/environment/logs/${barnId}`),
+};
+
+// Alerts APIs
+export const alertApi = {
+  getAll: (barnId: number) => api.get(`/alerts/${barnId}`),
+  markRead: (id: string) => api.patch(`/alerts/${id}/read`),
+};
+
+// Notes APIs
+export const noteApi = {
+  getAll: () => api.get('/notes'),
+  create: (data: any) => api.post('/notes', data),
+  update: (id: number, data: any) => api.put(`/notes/${id}`, data),
+};
+
+// FarmAI APIs
+export const farmAiApi = {
+  getChatHistory: (barnId: number) => api.get(`/farm-ai/history/${barnId}`),
+  sendMessage: (data: any) => api.post('/farm-ai/chat', data),
+};
+
+export default api;

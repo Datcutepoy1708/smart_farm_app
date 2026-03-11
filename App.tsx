@@ -2,10 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme } from 'react-native';
 
-import AppNavigator from '../navigation/AppNavigator';
-import { COLORS } from '../constants/config';
+import AppNavigator from './navigation/AppNavigator';
 
-export default function RootLayout() {
+export default function App() {
   const colorScheme = useColorScheme();
 
   return (
