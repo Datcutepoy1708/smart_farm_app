@@ -13,9 +13,11 @@ import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import ThermalMonitorScreen from '../screens/dashboard/ThermalMonitorScreen';
-import DevicesScreen from '../screens/devices/DevicesScreen';
+import AlertScreen from '../screens/alerts/AlertScreen';
+import ScheduleScreen from '../screens/schedules/ScheduleScreen';
+import FeedAnalysisScreen from '../screens/feed/FeedAnalysisScreen';
 import FarmAIScreen from '../screens/farm-ai/FarmAIScreen';
-import AlertsScreen from '../screens/alerts/AlertsScreen';
+import DevicesScreen from '../screens/devices/DevicesScreen';
 import NotesScreen from '../screens/notes/NotesScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 
@@ -115,8 +117,18 @@ const MainTabNavigator = () => {
       />
       <Tab.Screen 
         name="Alerts" 
-        component={AlertsScreen}
+        component={AlertScreen}
         options={{ title: 'Cảnh báo' }}
+      />
+      <Tab.Screen 
+        name="Schedule" 
+        component={ScheduleScreen}
+        options={{ title: 'Lịch' }}
+      />
+      <Tab.Screen 
+        name="FeedAnalysis" 
+        component={FeedAnalysisScreen}
+        options={{ title: 'Thức ăn' }}
       />
       <Tab.Screen 
         name="Notes" 
