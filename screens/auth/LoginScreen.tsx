@@ -14,16 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../store/authStore';
 import { COLORS } from '../../constants/config';
+import { authService } from '../../services/authService';
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
-
-  // Hardcoded test credentials
-  const TEST_EMAIL = 'admin@smartfarm.com';
-  const TEST_PASSWORD = 'admin123';
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -34,39 +31,17 @@ const LoginScreen = () => {
     setIsLoading(true);
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Check hardcoded credentials
-      if (email === TEST_EMAIL && password === TEST_PASSWORD) {
-        // Mock user data
-        const userData = {
-          id: 1,
-          fullName: 'SmartFarm Admin',
-          email: TEST_EMAIL,
-          phone: '0123456789',
-          role: 'admin',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        // Mock token
-        const token = 'mock-jwt-token-' + Date.now();
-
-        login(token, userData);
-      } else {
-        Alert.alert('Lỗi', 'Email hoặc mật khẩu không đúng');
-      }
-    } catch (error) {
-      Alert.alert('Lỗi', 'Đăng nhập thất bại');
+      const response = await authService.login({ email, password });
+      
+      // Store token and user data
+      login(response.data.token, response.data.user);
+      Alert.alert('Thành công', 'Đăng nhập thành công!');
+    } catch (error: any) {
+      console.error('Login error:', error);
+      Alert.alert('Lỗi đăng nhập', error.message || 'Đăng nhập thất bại');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fillTestCredentials = () => {
-    setEmail(TEST_EMAIL);
-    setPassword(TEST_PASSWORD);
   };
 
   return (
@@ -121,15 +96,11 @@ const LoginScreen = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Test Credentials Info */}
-            <View style={styles.testInfoContainer}>
-              <Text style={styles.testInfoTitle}>Tài khoản test:</Text>
-              <Text style={styles.testInfoText}>Email: {TEST_EMAIL}</Text>
-              <Text style={styles.testInfoText}>Mật khẩu: {TEST_PASSWORD}</Text>
-              <TouchableOpacity style={styles.fillButton} onPress={fillTestCredentials}>
-                <Text style={styles.fillButtonText}>Điền tài khoản test</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.registerButton}>
+              <Text style={styles.registerButtonText}>
+                Đăng ký
+              </Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -215,37 +186,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  testInfoContainer: {
-    marginTop: 24,
-    padding: 16,
-    backgroundColor: '#f0f8ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  testInfoTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.primary,
-    marginBottom: 8,
-  },
-  testInfoText: {
-    fontSize: 12,
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  fillButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  registerButton: {
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 16,
   },
-  fillButtonText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '600',
+  registerButtonText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 
