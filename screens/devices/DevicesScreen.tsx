@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 
 const DeviceScreen = () => {
+  const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedBarn, setSelectedBarn] = useState('all');
 
@@ -127,6 +129,9 @@ const DeviceScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.text} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Thiết bị</Text>
         <TouchableOpacity style={styles.addButton}>
           <Icon name="add" size={24} color={COLORS.white} />
@@ -260,6 +265,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.text,
+  },
+  backButton: {
+    padding: 8,
   },
   addButton: {
     backgroundColor: COLORS.primary,

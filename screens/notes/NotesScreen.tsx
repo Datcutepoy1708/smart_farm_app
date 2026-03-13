@@ -1,27 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Alert as RNAlert,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/config';
+import { COLORS, API_URL } from '../../constants/config';
+import { useAuth } from '../../store/authStore';
+
+// ==================== INTERFACES ====================
+
+type NoteTag = 'urgent' | 'routine' | 'medical' | 'feeding';
 
 interface Note {
   id: number;
-  title: string;
+  userId: number;
+  barnId: number | null;
+  barnName: string | null;
+  flockId: number | null;
+  title: string | null;
   content: string;
-  barnId?: number;
-  barnName?: string;
+  tag: NoteTag;
+  reminderAt: string | null;
+  isReminded: boolean;
+  isArchived: boolean;
   createdAt: string;
-  updatedAt?: string;
-  category: 'daily' | 'medical' | 'feeding' | 'maintenance' | 'other';
+  updatedAt: string;
+}
+
+interface CreateNoteInput {
+  title?: string;
+  content: string;
+  tag?: NoteTag;
+  barnId?: number;
+  reminderAt?: string;
 }
 
 interface MenuItem {
@@ -32,127 +50,202 @@ interface MenuItem {
   danger?: boolean;
 }
 
+interface CategoryItem {
+  key: string;
+  label: string;
+  icon: string;
+}
+
+// ==================== HELPERS ====================
+
+const timeAgo = (dateString: string): string => {
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+  if (diffMinutes < 1) return 'Vừa xong';
+  if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+  if (diffHours < 24) return `${diffHours} giờ trước`;
+
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+const getTagColor = (tag: NoteTag): string => {
+  switch (tag) {
+    case 'urgent':
+      return '#FF9800';
+    case 'routine':
+      return '#4CAF50';
+    case 'medical':
+      return '#F44336';
+    case 'feeding':
+      return '#2D6A2D';
+    default:
+      return COLORS.gray;
+  }
+};
+
+const getTagIcon = (tag: NoteTag): string => {
+  switch (tag) {
+    case 'urgent':
+      return 'warning';
+    case 'routine':
+      return 'today';
+    case 'medical':
+      return 'medical-services';
+    case 'feeding':
+      return 'restaurant';
+    default:
+      return 'note';
+  }
+};
+
+// ==================== COMPONENT ====================
+
 const NotesScreen = () => {
   const navigation = useNavigation();
-  const [notes, setNotes] = useState<Note[]>([
-    {
-      id: 1,
-      title: 'Kiểm tra sức khỏe đàn gà',
-      content: 'Đàn gà chuồng 01 có dấu hiệu khỏe mạnh, tăng trưởng tốt, không có dấu hiệu bệnh tật. Cần tiếp tục theo dõi và duy trì chế độ chăm sóc hiện tại.',
-      barnId: 1,
-      barnName: 'Chuồng 01',
-      createdAt: '2024-03-12 08:30',
-      category: 'daily',
-    },
-    {
-      id: 2,
-      title: 'Tiêm phòng bệnh Newcastle',
-      content: 'Đã tiêm phòng bệnh Newcastle cho toàn bộ đàn gà chuồng 02. Liều lượng theo khuyến cáo, theo dõi phản ứng trong 24h.',
-      barnId: 2,
-      barnName: 'Chuồng 02',
-      createdAt: '2024-03-11 14:00',
-      category: 'medical',
-    },
-    {
-      id: 3,
-      title: 'Điều chỉnh lượng thức ăn',
-      content: 'Tăng lượng thức ăn lên 10% cho chuồng 03 do gà đang trong giai đoạn tăng trưởng nhanh. Theo dõi cân nặng định kỳ.',
-      barnId: 3,
-      barnName: 'Chuồng 03',
-      createdAt: '2024-03-10 16:30',
-      category: 'feeding',
-    },
-    {
-      id: 4,
-      title: 'Bảo dưỡng hệ thống thông gió',
-      content: 'Kiểm tra và vệ sinh hệ thống thông gió chuồng 01. Thay thế bộ lọc, bôi trơn các bộ phận chuyển động.',
-      barnId: 1,
-      barnName: 'Chuồng 01',
-      createdAt: '2024-03-09 10:00',
-      category: 'maintenance',
-    },
-  ]);
+  const { token } = useAuth();
 
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showDropdown, setShowDropdown] = useState<string | number | null>(null);
 
-  const categories = [
+  const categories: CategoryItem[] = [
     { key: 'all', label: 'Tất cả', icon: 'apps' },
-    { key: 'daily', label: 'Hàng ngày', icon: 'today' },
+    { key: 'routine', label: 'Hàng ngày', icon: 'today' },
     { key: 'medical', label: 'Y tế', icon: 'medical-services' },
     { key: 'feeding', label: 'Cho ăn', icon: 'restaurant' },
-    { key: 'maintenance', label: 'Bảo trì', icon: 'build' },
-    { key: 'other', label: 'Khác', icon: 'more-horiz' },
+    { key: 'urgent', label: 'Khẩn cấp', icon: 'warning' },
   ];
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'daily':
-        return COLORS.primary;
-      case 'medical':
-        return COLORS.danger;
-      case 'feeding':
-        return COLORS.secondary;
-      case 'maintenance':
-        return COLORS.warning;
-      default:
-        return COLORS.gray;
-    }
-  };
+  // ==================== API CALLS ====================
 
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'daily':
-        return 'today';
-      case 'medical':
-        return 'medical-services';
-      case 'feeding':
-        return 'restaurant';
-      case 'maintenance':
-        return 'build';
-      default:
-        return 'note';
-    }
-  };
+  const fetchNotes = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-  const filteredNotes = notes.filter(note => 
-    selectedCategory === 'all' || note.category === selectedCategory
-  );
+      const response = await fetch(`${API_URL}/notes`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.status === 401) {
+        RNAlert.alert('Phiên đăng nhập hết hạn', 'Vui lòng đăng nhập lại');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result: { success: boolean; data: Note[] } = await response.json();
+
+      if (result.success) {
+        setNotes(result.data);
+      } else {
+        throw new Error('API trả về lỗi');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lỗi không xác định';
+      setError(msg);
+      console.error('Fetch notes error:', msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
 
   const handleDeleteNote = (id: number) => {
     RNAlert.alert(
-      'Xóa ghi chú',
-      'Bạn có chắc chắn muốn xóa ghi chú này?',
+      'Xác nhận xóa',
+      'Bạn có chắc muốn xóa ghi chú này không?',
       [
         { text: 'Hủy', style: 'cancel' },
-        { 
-          text: 'Xóa', 
+        {
+          text: 'Xóa',
           style: 'destructive',
-          onPress: () => {
-            setNotes(notes.filter(note => note.id !== id));
-            RNAlert.alert('Thành công', 'Đã xóa ghi chú');
-          }
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_URL}/notes/${id}`, {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+              setNotes((prev) => prev.filter((note) => note.id !== id));
+              setShowDropdown(null);
+              RNAlert.alert('Thành công', 'Đã xóa');
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Lỗi';
+              RNAlert.alert('Lỗi', `Không thể xóa: ${msg}`);
+            }
+          },
         },
-      ]
+      ],
     );
   };
 
-  const handleDuplicateNote = (note: Note) => {
-    const duplicatedNote: Note = {
-      ...note,
-      id: Date.now(),
-      title: `${note.title} (Bản sao)`,
-      createdAt: new Date().toLocaleString('vi-VN'),
-    };
-    setNotes([duplicatedNote, ...notes]);
-    setShowDropdown(null);
-    RNAlert.alert('Thành công', 'Đã sao chép ghi chú');
+  const handleDuplicateNote = async (note: Note) => {
+    try {
+      const body: CreateNoteInput = {
+        title: note.title ? `${note.title} (Bản sao)` : undefined,
+        content: note.content,
+        tag: note.tag,
+        barnId: note.barnId ?? undefined,
+      };
+
+      const response = await fetch(`${API_URL}/notes`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const result: { success: boolean; data: Note } = await response.json();
+
+      if (result.success) {
+        setNotes((prev) => [result.data, ...prev]);
+        setShowDropdown(null);
+        RNAlert.alert('Thành công', 'Đã sao chép ghi chú');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lỗi';
+      RNAlert.alert('Lỗi', `Không thể sao chép: ${msg}`);
+    }
   };
 
   const openEditModal = (note: Note) => {
     setShowDropdown(null);
-    (navigation as any).navigate('UpdateNote', { note });
+    (navigation as ReturnType<typeof useNavigation> & { navigate: (screen: string, params: { note: Note }) => void }).navigate('UpdateNote', { note });
   };
+
+  // ==================== FILTER ====================
+
+  const filteredNotes = notes.filter(
+    (note) => selectedCategory === 'all' || note.tag === selectedCategory,
+  );
+
+  // ==================== MENU ====================
 
   const menuItems: MenuItem[] = [
     {
@@ -161,97 +254,91 @@ const NotesScreen = () => {
       icon: 'add',
       onPress: () => {
         setShowDropdown(null);
-        (navigation as any).navigate('CreateNote');
+        (navigation as ReturnType<typeof useNavigation> & { navigate: (screen: string) => void }).navigate('CreateNote');
       },
     },
     {
-      id: 'clear',
-      title: 'Xóa tất cả',
-      icon: 'delete-sweep',
-      danger: true,
+      id: 'refresh',
+      title: 'Tải lại',
+      icon: 'refresh',
       onPress: () => {
         setShowDropdown(null);
-        RNAlert.alert(
-          'Xóa tất cả',
-          'Bạn có chắc chắn muốn xóa tất cả ghi chú?',
-          [
-            { text: 'Hủy', style: 'cancel' },
-            { 
-              text: 'Xóa tất cả', 
-              style: 'destructive',
-              onPress: () => {
-                setNotes([]);
-                RNAlert.alert('Thành công', 'Đã xóa tất cả ghi chú');
-              }
-            },
-          ]
-        );
+        fetchNotes();
       },
     },
   ];
+
+  // ==================== RENDER ITEMS ====================
 
   const renderNoteItem = ({ item }: { item: Note }) => (
     <View style={styles.noteCard}>
       <View style={styles.noteHeader}>
         <View style={styles.noteInfo}>
-          <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(item.category) }]}>
-            <Icon name={getCategoryIcon(item.category)} size={16} color={COLORS.white} />
+          <View
+            style={[
+              styles.categoryIcon,
+              { backgroundColor: getTagColor(item.tag) },
+            ]}
+          >
+            <Icon name={getTagIcon(item.tag)} size={16} color={COLORS.white} />
           </View>
           <View style={styles.noteMeta}>
-            <Text style={styles.noteTitle}>{item.title}</Text>
-            <Text style={styles.noteTime}>{item.createdAt}</Text>
-            {item.updatedAt && (
-              <Text style={styles.updatedTime}>Cập nhật: {item.updatedAt}</Text>
-            )}
+            <Text style={styles.noteTitle}>
+              {item.title ?? 'Không tiêu đề'}
+            </Text>
+            <Text style={styles.noteTime}>{timeAgo(item.createdAt)}</Text>
           </View>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.moreButton}
-          onPress={() => setShowDropdown(showDropdown === item.id ? null : item.id)}
+          onPress={() =>
+            setShowDropdown(showDropdown === item.id ? null : item.id)
+          }
         >
           <Icon name="more-vert" size={20} color={COLORS.gray} />
         </TouchableOpacity>
       </View>
-      
+
       <Text style={styles.noteContent}>{item.content}</Text>
-      
+
       {item.barnName && (
         <View style={styles.barnTag}>
-          <Icon name="home" size={12} color={COLORS.primary} />
-          <Text style={styles.barnText}>{item.barnName}</Text>
+          <Text style={styles.barnText}>🏠 {item.barnName}</Text>
         </View>
       )}
 
       {/* Dropdown menu for each note */}
       {showDropdown === item.id && (
         <View style={styles.noteDropdown}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.dropdownItem}
             onPress={() => openEditModal(item)}
           >
             <Icon name="edit" size={16} color={COLORS.primary} />
             <Text style={styles.dropdownItemText}>Chỉnh sửa</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.dropdownItem}
             onPress={() => handleDuplicateNote(item)}
           >
             <Icon name="content-copy" size={16} color={COLORS.secondary} />
             <Text style={styles.dropdownItemText}>Sao chép</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.dropdownItem, styles.deleteItem]}
             onPress={() => handleDeleteNote(item.id)}
           >
             <Icon name="delete" size={16} color={COLORS.danger} />
-            <Text style={[styles.dropdownItemText, styles.deleteItemText]}>Xóa</Text>
+            <Text style={[styles.dropdownItemText, styles.deleteItemText]}>
+              Xóa
+            </Text>
           </TouchableOpacity>
         </View>
       )}
     </View>
   );
 
-  const renderCategoryChip = ({ item }: { item: any }) => (
+  const renderCategoryChip = ({ item }: { item: CategoryItem }) => (
     <TouchableOpacity
       style={[
         styles.categoryChip,
@@ -259,28 +346,83 @@ const NotesScreen = () => {
       ]}
       onPress={() => setSelectedCategory(item.key)}
     >
-      <Icon 
-        name={item.icon} 
-        size={30} 
-        color={selectedCategory === item.key ? COLORS.white : COLORS.gray} 
+      <Icon
+        name={item.icon}
+        size={30}
+        color={selectedCategory === item.key ? COLORS.white : COLORS.gray}
       />
-      <Text style={[
-        styles.categoryText,
-        selectedCategory === item.key && styles.categoryTextActive,
-      ]}>
+      <Text
+        style={[
+          styles.categoryText,
+          selectedCategory === item.key && styles.categoryTextActive,
+        ]}
+      >
         {item.label}
       </Text>
     </TouchableOpacity>
   );
 
+  // ==================== LOADING STATE ====================
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()}>
+            <Icon name="arrow-back" size={24} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Ghi chú</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerButton}>
+              <Icon name="more-vert" size={24} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Đang tải ghi chú...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ==================== ERROR STATE ====================
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Ghi chú</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerButton}>
+              <Icon name="more-vert" size={24} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={styles.centerContainer}>
+          <Icon name="error-outline" size={48} color={COLORS.danger} />
+          <Text style={styles.errorText}>Không tải được dữ liệu</Text>
+          <Text style={styles.errorDetail}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchNotes}>
+            <Text style={styles.retryText}>Thử lại</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ==================== MAIN RENDER ====================
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.white} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Ghi chú</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => setShowDropdown(showDropdown === 'main' ? null : 'main')}
+            onPress={() =>
+              setShowDropdown(showDropdown === 'main' ? null : 'main')
+            }
           >
             <Icon name="more-vert" size={24} color={COLORS.white} />
           </TouchableOpacity>
@@ -296,8 +438,17 @@ const NotesScreen = () => {
               style={[styles.dropdownItem, item.danger && styles.deleteItem]}
               onPress={item.onPress}
             >
-              <Icon name={item.icon} size={16} color={item.danger ? COLORS.danger : COLORS.primary} />
-              <Text style={[styles.dropdownItemText, item.danger && styles.deleteItemText]}>
+              <Icon
+                name={item.icon}
+                size={16}
+                color={item.danger ? COLORS.danger : COLORS.primary}
+              />
+              <Text
+                style={[
+                  styles.dropdownItemText,
+                  item.danger && styles.deleteItemText,
+                ]}
+              >
                 {item.title}
               </Text>
             </TouchableOpacity>
@@ -327,11 +478,15 @@ const NotesScreen = () => {
           <View style={styles.emptyContainer}>
             <Icon name="note" size={48} color={COLORS.gray} />
             <Text style={styles.emptyText}>Chưa có ghi chú nào</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.emptyAddButton}
-              onPress={() => (navigation as any).navigate('CreateNote')}
+              onPress={() =>
+                (navigation as ReturnType<typeof useNavigation> & { navigate: (screen: string) => void }).navigate('CreateNote')
+              }
             >
-              <Text style={styles.emptyAddButtonText}>Thêm ghi chú đầu tiên</Text>
+              <Text style={styles.emptyAddButtonText}>
+                Thêm ghi chú đầu tiên
+              </Text>
             </TouchableOpacity>
           </View>
         }
@@ -340,10 +495,47 @@ const NotesScreen = () => {
   );
 };
 
+// ==================== STYLES ====================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.gray,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.danger,
+  },
+  errorDetail: {
+    marginTop: 8,
+    fontSize: 14,
+    color: COLORS.gray,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: COLORS.white,
+    fontWeight: '600',
+    fontSize: 16,
   },
   header: {
     flexDirection: 'row',
@@ -455,11 +647,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.gray,
   },
-  updatedTime: {
-    fontSize: 10,
-    color: COLORS.secondary,
-    marginTop: 2,
-  },
   moreButton: {
     padding: 4,
   },
@@ -481,7 +668,6 @@ const styles = StyleSheet.create({
   barnText: {
     fontSize: 11,
     color: COLORS.primary,
-    marginLeft: 4,
     fontWeight: '500',
   },
   noteDropdown: {

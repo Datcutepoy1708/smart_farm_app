@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../store/authStore';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 
 interface SettingsItem {
@@ -28,6 +29,7 @@ interface SettingsSection {
 }
 
 const SettingsScreen = () => {
+  const navigation = useNavigation();
   const { user, logout } = useAuth();
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
@@ -141,7 +143,11 @@ const SettingsScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.white} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Cài đặt</Text>
+        <View style={styles.placeholder} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -233,6 +239,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.white,
+  },
+  backButton: {
+    padding: 8,
+  },
+  placeholder: {
+    width: 40,
   },
   scrollView: {
     flex: 1,

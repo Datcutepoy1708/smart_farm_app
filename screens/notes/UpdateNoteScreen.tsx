@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,115 +7,193 @@ import {
   TextInput,
   TouchableOpacity,
   Alert as RNAlert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { COLORS } from '../../constants/config';
+import { COLORS, API_URL } from '../../constants/config';
+import { useAuth } from '../../store/authStore';
+
+type NoteTag = 'urgent' | 'routine' | 'medical' | 'feeding';
 
 interface Note {
   id: number;
-  title: string;
+  userId: number;
+  barnId: number | null;
+  barnName: string | null;
+  flockId: number | null;
+  title: string | null;
   content: string;
-  barnId?: number;
-  barnName?: string;
+  tag: NoteTag;
+  reminderAt: string | null;
+  isReminded: boolean;
+  isArchived: boolean;
   createdAt: string;
-  updatedAt?: string;
-  category: 'daily' | 'medical' | 'feeding' | 'maintenance' | 'other';
+  updatedAt: string;
 }
 
-type UpdateNoteScreenRouteProp = RouteProp<{ 
-  UpdateNote: { note: Note } 
+type UpdateNoteScreenRouteProp = RouteProp<{
+  UpdateNote: { note: Note };
 }, 'UpdateNote'>;
+
+interface UpdateNoteForm {
+  title: string;
+  content: string;
+  tag: NoteTag;
+  barnId: number;
+}
 
 const UpdateNoteScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<UpdateNoteScreenRouteProp>();
   const { note } = route.params;
-  
-  const [updatedNote, setUpdatedNote] = useState({
-    title: note.title,
+  const { token } = useAuth();
+  const [saving, setSaving] = useState(false);
+
+  const [updatedNote, setUpdatedNote] = useState<UpdateNoteForm>({
+    title: note.title ?? '',
     content: note.content,
-    category: note.category,
-    barnId: note.barnId || 1,
+    tag: note.tag,
+    barnId: note.barnId ?? 1,
   });
 
-  const categories = [
-    { key: 'daily', label: 'Hàng ngày', icon: 'today' },
+  const categories: { key: NoteTag; label: string; icon: string }[] = [
+    { key: 'routine', label: 'Hàng ngày', icon: 'today' },
     { key: 'medical', label: 'Y tế', icon: 'medical-services' },
     { key: 'feeding', label: 'Cho ăn', icon: 'restaurant' },
-    { key: 'maintenance', label: 'Bảo trì', icon: 'build' },
-    { key: 'other', label: 'Khác', icon: 'more-horiz' },
+    { key: 'urgent', label: 'Khẩn cấp', icon: 'warning' },
   ];
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'daily':
-        return COLORS.primary;
+  const getTagColor = (tag: string): string => {
+    switch (tag) {
+      case 'urgent':
+        return '#FF9800';
+      case 'routine':
+        return '#4CAF50';
       case 'medical':
-        return COLORS.danger;
+        return '#F44336';
       case 'feeding':
-        return COLORS.secondary;
-      case 'maintenance':
-        return COLORS.warning;
+        return '#2D6A2D';
       default:
         return COLORS.gray;
     }
   };
 
-  const handleUpdateNote = () => {
-    if (!updatedNote.title.trim() || !updatedNote.content.trim()) {
-      RNAlert.alert('Lỗi', 'Vui lòng nhập tiêu đề và nội dung ghi chú');
+  const timeAgo = (dateString: string): string => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    if (diffMinutes < 1) return 'Vừa xong';
+    if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const handleUpdateNote = async () => {
+    if (!updatedNote.content.trim()) {
+      RNAlert.alert('Lỗi', 'Vui lòng nhập nội dung ghi chú');
       return;
     }
 
-    // TODO: Call API to update note
-    console.log('Updating note:', { id: note.id, ...updatedNote });
-    
-    RNAlert.alert('Thành công', 'Đã cập nhật ghi chú', [
-      {
-        text: 'OK',
-        onPress: () => navigation.goBack(),
-      },
-    ]);
+    try {
+      setSaving(true);
+
+      const body = {
+        title: updatedNote.title.trim() || undefined,
+        content: updatedNote.content.trim(),
+        tag: updatedNote.tag,
+        barnId: updatedNote.barnId,
+      };
+
+      const response = await fetch(`${API_URL}/notes/${note.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData: { message?: string } = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+
+      const result: { success: boolean } = await response.json();
+
+      if (result.success) {
+        RNAlert.alert('Thành công', 'Đã cập nhật ghi chú', [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]);
+      } else {
+        throw new Error('API trả về lỗi');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lỗi không xác định';
+      RNAlert.alert('Lỗi', `Không thể cập nhật: ${msg}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteNote = () => {
     RNAlert.alert(
-      'Xóa ghi chú',
-      'Bạn có chắc chắn muốn xóa ghi chú này?',
+      'Xác nhận xóa',
+      'Bạn có chắc muốn xóa ghi chú này không?',
       [
         { text: 'Hủy', style: 'cancel' },
-        { 
-          text: 'Xóa', 
+        {
+          text: 'Xóa',
           style: 'destructive',
-          onPress: () => {
-            // TODO: Call API to delete note
-            console.log('Deleting note:', note.id);
-            
-            RNAlert.alert('Thành công', 'Đã xóa ghi chú', [
-              {
-                text: 'OK',
-                onPress: () => navigation.goBack(),
-              },
-            ]);
-          }
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_URL}/notes/${note.id}`, {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+              RNAlert.alert('Thành công', 'Đã xóa ghi chú', [
+                {
+                  text: 'OK',
+                  onPress: () => navigation.goBack(),
+                },
+              ]);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Lỗi';
+              RNAlert.alert('Lỗi', `Không thể xóa: ${msg}`);
+            }
+          },
         },
-      ]
+      ],
     );
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
           <Icon name="arrow-back" size={24} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Chỉnh sửa ghi chú</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.deleteButton}
           onPress={handleDeleteNote}
         >
@@ -127,11 +205,11 @@ const UpdateNoteScreen: React.FC = () => {
         <View style={styles.form}>
           <View style={styles.infoSection}>
             <Text style={styles.infoLabel}>Ngày tạo:</Text>
-            <Text style={styles.infoValue}>{note.createdAt}</Text>
+            <Text style={styles.infoValue}>{timeAgo(note.createdAt)}</Text>
             {note.updatedAt && (
               <>
                 <Text style={styles.infoLabel}>Cập nhật lần cuối:</Text>
-                <Text style={styles.infoValue}>{note.updatedAt}</Text>
+                <Text style={styles.infoValue}>{timeAgo(note.updatedAt)}</Text>
               </>
             )}
           </View>
@@ -141,25 +219,29 @@ const UpdateNoteScreen: React.FC = () => {
             <TextInput
               style={styles.textInput}
               value={updatedNote.title}
-              onChangeText={(text) => setUpdatedNote(prev => ({ ...prev, title: text }))}
+              onChangeText={(text) =>
+                setUpdatedNote((prev) => ({ ...prev, title: text }))
+              }
               placeholder="Nhập tiêu đề ghi chú"
               placeholderTextColor={COLORS.gray}
             />
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Nội dung</Text>
             <TextInput
               style={[styles.textInput, styles.textArea]}
               value={updatedNote.content}
-              onChangeText={(text) => setUpdatedNote(prev => ({ ...prev, content: text }))}
+              onChangeText={(text) =>
+                setUpdatedNote((prev) => ({ ...prev, content: text }))
+              }
               placeholder="Nhập nội dung ghi chú"
               placeholderTextColor={COLORS.gray}
               multiline
               numberOfLines={6}
             />
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Loại ghi chú</Text>
             <View style={styles.categoryGrid}>
@@ -168,27 +250,37 @@ const UpdateNoteScreen: React.FC = () => {
                   key={category.key}
                   style={[
                     styles.categoryOption,
-                    updatedNote.category === category.key && styles.categoryOptionActive,
-                    { borderLeftColor: getCategoryColor(category.key) }
+                    updatedNote.tag === category.key &&
+                      styles.categoryOptionActive,
+                    { borderLeftColor: getTagColor(category.key) },
                   ]}
-                  onPress={() => setUpdatedNote(prev => ({ ...prev, category: category.key as any }))}
+                  onPress={() =>
+                    setUpdatedNote((prev) => ({ ...prev, tag: category.key }))
+                  }
                 >
-                  <Icon 
-                    name={category.icon} 
-                    size={20} 
-                    color={updatedNote.category === category.key ? COLORS.white : COLORS.gray} 
+                  <Icon
+                    name={category.icon}
+                    size={20}
+                    color={
+                      updatedNote.tag === category.key
+                        ? COLORS.white
+                        : COLORS.gray
+                    }
                   />
-                  <Text style={[
-                    styles.categoryOptionText,
-                    updatedNote.category === category.key && styles.categoryOptionTextActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.categoryOptionText,
+                      updatedNote.tag === category.key &&
+                        styles.categoryOptionTextActive,
+                    ]}
+                  >
                     {category.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Chuồng</Text>
             <View style={styles.barnGrid}>
@@ -199,25 +291,22 @@ const UpdateNoteScreen: React.FC = () => {
                     styles.barnOption,
                     updatedNote.barnId === barnId && styles.barnOptionActive,
                   ]}
-                  onPress={() => setUpdatedNote(prev => ({ ...prev, barnId }))}
+                  onPress={() =>
+                    setUpdatedNote((prev) => ({ ...prev, barnId }))
+                  }
                 >
-                  <Text style={[
-                    styles.barnOptionText,
-                    updatedNote.barnId === barnId && styles.barnOptionTextActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.barnOptionText,
+                      updatedNote.barnId === barnId &&
+                        styles.barnOptionTextActive,
+                    ]}
+                  >
                     Chuồng {barnId}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Hình ảnh (Tùy chọn)</Text>
-            <TouchableOpacity style={styles.imageUploadButton}>
-              <Icon name="camera-alt" size={24} color={COLORS.gray} />
-              <Text style={styles.imageUploadText}>Thêm/Cập nhật hình ảnh</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -226,15 +315,23 @@ const UpdateNoteScreen: React.FC = () => {
         <TouchableOpacity
           style={[styles.actionButton, styles.cancelButton]}
           onPress={() => navigation.goBack()}
+          disabled={saving}
         >
           <Text style={styles.cancelButtonText}>Hủy</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.actionButton, styles.saveButton]}
+          style={[styles.actionButton, styles.saveButton, saving && styles.saveButtonDisabled]}
           onPress={handleUpdateNote}
+          disabled={saving}
         >
-          <Icon name="save" size={20} color={COLORS.white} />
-          <Text style={styles.saveButtonText}>Cập nhật</Text>
+          {saving ? (
+            <ActivityIndicator size="small" color={COLORS.white} />
+          ) : (
+            <>
+              <Icon name="save" size={20} color={COLORS.white} />
+              <Text style={styles.saveButtonText}>Cập nhật</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -364,22 +461,6 @@ const styles = StyleSheet.create({
   barnOptionTextActive: {
     color: COLORS.white,
   },
-  imageUploadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.white,
-    borderWidth: 2,
-    borderColor: '#E0E0E0',
-    borderStyle: 'dashed',
-  },
-  imageUploadText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginLeft: 8,
-  },
   footer: {
     flexDirection: 'row',
     padding: 16,
@@ -403,6 +484,9 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: COLORS.primary,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
   cancelButtonText: {
     fontSize: 16,

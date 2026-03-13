@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 
 const FarmAIScreen = () => {
+  const navigation = useNavigation();
   const [question, setQuestion] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisHistory, setAnalysisHistory] = useState([
@@ -138,6 +140,9 @@ const FarmAIScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.white} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>FarmAI</Text>
         <TouchableOpacity style={styles.headerButton}>
           <Icon name="history" size={24} color={COLORS.white} />
@@ -211,6 +216,9 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
   headerButton: {
+    padding: 8,
+  },
+  backButton: {
     padding: 8,
   },
   scrollView: {

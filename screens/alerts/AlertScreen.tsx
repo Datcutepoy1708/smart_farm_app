@@ -9,9 +9,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 
 const AlertScreen = () => {
+  const navigation = useNavigation();
   const [selectedFilter, setSelectedFilter] = useState('all');
 
   const mockAlerts = [
@@ -85,6 +87,9 @@ const AlertScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.text} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Cảnh báo</Text>
         <TouchableOpacity style={styles.clearButton}>
           <Icon name="clear-all" size={24} color={COLORS.primary} />
@@ -173,6 +178,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.text,
+  },
+  backButton: {
+    padding: 8,
   },
   clearButton: {
     padding: 8,

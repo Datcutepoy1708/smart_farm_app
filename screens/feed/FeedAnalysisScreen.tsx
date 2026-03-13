@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 
 interface FeedData {
@@ -53,7 +54,7 @@ const FeedAnalysisScreen = () => {
       notes: 'Cần theo dõi thêm về hiệu suất'
     },
   ]);
-
+  const navigaiton=useNavigation();
   const getEfficiencyColor = (efficiency: number) => {
     if (efficiency >= 85) return COLORS.success;
     if (efficiency >= 75) return COLORS.warning;
@@ -119,7 +120,11 @@ const FeedAnalysisScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigaiton.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.white} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Phân tích thức ăn</Text>
+        <View style={styles.placeholder} />
       </View>
 
       {/* Tab Navigation */}
@@ -242,6 +247,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.white,
+  },
+  backButton: {
+    padding: 8,
+  },
+  placeholder: {
+    width: 40,
   },
   tabContainer: {
     flexDirection: 'row',

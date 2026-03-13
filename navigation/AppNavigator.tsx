@@ -59,7 +59,7 @@ const AppNavigator = () => {
               options={{
                 title: 'Thêm ghi chú',
                 presentation: 'modal',
-                headerShown: true,
+                headerShown:false,
                 headerStyle: {
                   backgroundColor: COLORS.primary,
                 },

@@ -7,67 +7,110 @@ import {
   TextInput,
   TouchableOpacity,
   Alert as RNAlert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/config';
+import { COLORS, API_URL } from '../../constants/config';
+import { useAuth } from '../../store/authStore';
 
-interface CreateNoteScreenProps {}
+type NoteTag = 'urgent' | 'routine' | 'medical' | 'feeding';
 
-const CreateNoteScreen: React.FC<CreateNoteScreenProps> = () => {
+interface CreateNoteForm {
+  title: string;
+  content: string;
+  tag: NoteTag;
+  barnId: number;
+}
+
+const CreateNoteScreen = () => {
   const navigation = useNavigation();
-  const [newNote, setNewNote] = useState({
+  const { token } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [newNote, setNewNote] = useState<CreateNoteForm>({
     title: '',
     content: '',
-    category: 'daily' as 'daily' | 'medical' | 'feeding' | 'maintenance' | 'other',
+    tag: 'routine',
     barnId: 1,
   });
 
-  const categories = [
-    { key: 'daily', label: 'Hàng ngày', icon: 'today' },
+  const categories: { key: NoteTag; label: string; icon: string }[] = [
+    { key: 'routine', label: 'Hàng ngày', icon: 'today' },
     { key: 'medical', label: 'Y tế', icon: 'medical-services' },
     { key: 'feeding', label: 'Cho ăn', icon: 'restaurant' },
-    { key: 'maintenance', label: 'Bảo trì', icon: 'build' },
-    { key: 'other', label: 'Khác', icon: 'more-horiz' },
+    { key: 'urgent', label: 'Khẩn cấp', icon: 'warning' },
   ];
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'daily':
-        return COLORS.primary;
+  const getTagColor = (tag: string): string => {
+    switch (tag) {
+      case 'urgent':
+        return '#FF9800';
+      case 'routine':
+        return '#4CAF50';
       case 'medical':
-        return COLORS.danger;
+        return '#F44336';
       case 'feeding':
-        return COLORS.secondary;
-      case 'maintenance':
-        return COLORS.warning;
+        return '#2D6A2D';
       default:
         return COLORS.gray;
     }
   };
 
-  const handleCreateNote = () => {
-    if (!newNote.title.trim() || !newNote.content.trim()) {
-      RNAlert.alert('Lỗi', 'Vui lòng nhập tiêu đề và nội dung ghi chú');
+  const handleCreateNote = async () => {
+    if (!newNote.content.trim()) {
+      RNAlert.alert('Lỗi', 'Vui lòng nhập nội dung ghi chú');
       return;
     }
 
-    // TODO: Call API to create note
-    console.log('Creating note:', newNote);
-    
-    RNAlert.alert('Thành công', 'Đã thêm ghi chú mới', [
-      {
-        text: 'OK',
-        onPress: () => navigation.goBack(),
-      },
-    ]);
+    try {
+      setSaving(true);
+
+      const body = {
+        title: newNote.title.trim() || undefined,
+        content: newNote.content.trim(),
+        tag: newNote.tag,
+        barnId: newNote.barnId,
+      };
+
+      const response = await fetch(`${API_URL}/notes`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData: { message?: string } = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+
+      const result: { success: boolean } = await response.json();
+
+      if (result.success) {
+        RNAlert.alert('Thành công', 'Đã thêm ghi chú mới', [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]);
+      } else {
+        throw new Error('API trả về lỗi');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lỗi không xác định';
+      RNAlert.alert('Lỗi', `Không thể tạo ghi chú: ${msg}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
@@ -84,25 +127,29 @@ const CreateNoteScreen: React.FC<CreateNoteScreenProps> = () => {
             <TextInput
               style={styles.textInput}
               value={newNote.title}
-              onChangeText={(text) => setNewNote(prev => ({ ...prev, title: text }))}
+              onChangeText={(text) =>
+                setNewNote((prev) => ({ ...prev, title: text }))
+              }
               placeholder="Nhập tiêu đề ghi chú"
               placeholderTextColor={COLORS.gray}
             />
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Nội dung</Text>
             <TextInput
               style={[styles.textInput, styles.textArea]}
               value={newNote.content}
-              onChangeText={(text) => setNewNote(prev => ({ ...prev, content: text }))}
+              onChangeText={(text) =>
+                setNewNote((prev) => ({ ...prev, content: text }))
+              }
               placeholder="Nhập nội dung ghi chú"
               placeholderTextColor={COLORS.gray}
               multiline
               numberOfLines={6}
             />
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Loại ghi chú</Text>
             <View style={styles.categoryGrid}>
@@ -111,27 +158,34 @@ const CreateNoteScreen: React.FC<CreateNoteScreenProps> = () => {
                   key={category.key}
                   style={[
                     styles.categoryOption,
-                    newNote.category === category.key && styles.categoryOptionActive,
-                    { borderLeftColor: getCategoryColor(category.key) }
+                    newNote.tag === category.key && styles.categoryOptionActive,
+                    { borderLeftColor: getTagColor(category.key) },
                   ]}
-                  onPress={() => setNewNote(prev => ({ ...prev, category: category.key as any }))}
+                  onPress={() =>
+                    setNewNote((prev) => ({ ...prev, tag: category.key }))
+                  }
                 >
-                  <Icon 
-                    name={category.icon} 
-                    size={20} 
-                    color={newNote.category === category.key ? COLORS.white : COLORS.gray} 
+                  <Icon
+                    name={category.icon}
+                    size={20}
+                    color={
+                      newNote.tag === category.key ? COLORS.white : COLORS.gray
+                    }
                   />
-                  <Text style={[
-                    styles.categoryOptionText,
-                    newNote.category === category.key && styles.categoryOptionTextActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.categoryOptionText,
+                      newNote.tag === category.key &&
+                        styles.categoryOptionTextActive,
+                    ]}
+                  >
                     {category.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Chuồng</Text>
             <View style={styles.barnGrid}>
@@ -142,25 +196,21 @@ const CreateNoteScreen: React.FC<CreateNoteScreenProps> = () => {
                     styles.barnOption,
                     newNote.barnId === barnId && styles.barnOptionActive,
                   ]}
-                  onPress={() => setNewNote(prev => ({ ...prev, barnId }))}
+                  onPress={() =>
+                    setNewNote((prev) => ({ ...prev, barnId }))
+                  }
                 >
-                  <Text style={[
-                    styles.barnOptionText,
-                    newNote.barnId === barnId && styles.barnOptionTextActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.barnOptionText,
+                      newNote.barnId === barnId && styles.barnOptionTextActive,
+                    ]}
+                  >
                     Chuồng {barnId}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Hình ảnh (Tùy chọn)</Text>
-            <TouchableOpacity style={styles.imageUploadButton}>
-              <Icon name="camera-alt" size={24} color={COLORS.gray} />
-              <Text style={styles.imageUploadText}>Thêm hình ảnh</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -169,15 +219,23 @@ const CreateNoteScreen: React.FC<CreateNoteScreenProps> = () => {
         <TouchableOpacity
           style={[styles.actionButton, styles.cancelButton]}
           onPress={() => navigation.goBack()}
+          disabled={saving}
         >
           <Text style={styles.cancelButtonText}>Hủy</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.actionButton, styles.saveButton]}
+          style={[styles.actionButton, styles.saveButton, saving && styles.saveButtonDisabled]}
           onPress={handleCreateNote}
+          disabled={saving}
         >
-          <Icon name="save" size={20} color={COLORS.white} />
-          <Text style={styles.saveButtonText}>Lưu ghi chú</Text>
+          {saving ? (
+            <ActivityIndicator size="small" color={COLORS.white} />
+          ) : (
+            <>
+              <Icon name="save" size={20} color={COLORS.white} />
+              <Text style={styles.saveButtonText}>Lưu ghi chú</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -291,22 +349,6 @@ const styles = StyleSheet.create({
   barnOptionTextActive: {
     color: COLORS.white,
   },
-  imageUploadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.white,
-    borderWidth: 2,
-    borderColor: '#E0E0E0',
-    borderStyle: 'dashed',
-  },
-  imageUploadText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginLeft: 8,
-  },
   footer: {
     flexDirection: 'row',
     padding: 16,
@@ -330,6 +372,9 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: COLORS.primary,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
   cancelButtonText: {
     fontSize: 16,
