@@ -8,9 +8,10 @@ import { COLORS } from '../constants/config';
 import { useAlertStore } from '../store/alertStore';
 
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
-import DeviceScreen from '../screens/dashboard/DeviceScreen';
+
 import AlertScreen from '../screens/alerts/AlertScreen';
 import FarmAIScreen from '../screens/farmai/FarmAIScreen';
+import DevicesScreen from '@/screens/devices/DevicesScreen';
 
 type BottomTabParamList = {
   Dashboard: undefined;
@@ -102,7 +103,7 @@ const BottomTabNavigator: React.FC = () => {
       />
       <Tab.Screen
         name="Devices"
-        component={DeviceScreen}
+        component={DevicesScreen}
         options={{
           title: 'Thiết bị',
         }}

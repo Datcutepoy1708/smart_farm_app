@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,242 +7,244 @@ import {
   TouchableOpacity,
   Switch,
   RefreshControl,
+  ActivityIndicator,
+  Alert,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/config';
+import io, { Socket } from 'socket.io-client';
 
-const DeviceScreen = () => {
+import { COLORS, SOCKET_URL } from '../../constants/config';
+import { deviceApi } from '../../services/api';
+
+interface BarnDevice {
+  id: number;
+  barnId: number;
+  name: string;
+  deviceType: 'feeder' | 'water' | 'fan' | 'heater' | 'washer';
+  mqttTopic: string;
+  currentStatus: 'ON' | 'OFF';
+  isActive: boolean;
+}
+
+const DevicesScreen = () => {
   const navigation = useNavigation();
+  const [devices, setDevices] = useState<BarnDevice[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedBarn, setSelectedBarn] = useState('all');
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'ON' | 'OFF'>('ALL');
+  const [socket, setSocket] = useState<Socket | null>(null);
 
-  const mockDevices = [
-    {
-      id: 1,
-      name: 'DHT22 - Sensor Nhiệt độ',
-      type: 'sensor',
-      barnId: 1,
-      barnName: 'Chuồng 01',
-      status: 'online',
-      lastSeen: 'Vừa xong',
-      battery: 85,
-      data: { temperature: 28.5, humidity: 65 },
-    },
-    {
-      id: 2,
-      name: 'Load Cell - Cân nặng',
-      type: 'sensor',
-      barnId: 1,
-      barnName: 'Chuồng 01',
-      status: 'online',
-      lastSeen: '2 phút trước',
-      battery: 92,
-      data: { weight: 125.5, unit: 'kg' },
-    },
-    {
-      id: 3,
-      name: 'ESP32CAM - Camera',
-      type: 'camera',
-      barnId: 2,
-      barnName: 'Chuồng 02',
-      status: 'online',
-      lastSeen: '5 phút trước',
-      battery: 78,
-      data: { resolution: '1080p', fps: 30 },
-    },
-    {
-      id: 4,
-      name: 'Water Level Sensor',
-      type: 'sensor',
-      barnId: 2,
-      barnName: 'Chuồng 02',
-      status: 'offline',
-      lastSeen: '1 giờ trước',
-      battery: 15,
-      data: { level: 25, unit: '%' },
-    },
-    {
-      id: 5,
-      name: 'Feeding System',
-      type: 'actuator',
-      barnId: 3,
-      barnName: 'Chuồng 03',
-      status: 'online',
-      lastSeen: 'Vừa xong',
-      battery: 95,
-      data: { status: 'active', lastFeed: '30 phút trước' },
-    },
-    {
-      id: 6,
-      name: 'Ventilation Fan',
-      type: 'actuator',
-      barnId: 3,
-      barnName: 'Chuồng 03',
-      status: 'online',
-      lastSeen: '1 phút trước',
-      battery: 88,
-      data: { speed: 1200, rpm: true },
-    },
-  ];
+  // Assuming user ID is 1 for the websocket room as specified in backend
+  const userId = 1;
+  const BARN_ID = 1;
+
+  const fetchDevices = async () => {
+    try {
+      setError(null);
+      const response = await deviceApi.getBarnDevices(BARN_ID);
+      if (response.data.success) {
+        setDevices(response.data.data);
+      } else {
+        setError('Không thể tải danh sách thiết bị');
+      }
+    } catch (err: any) {
+      console.error('Fetch devices error:', err);
+      setError('Đã xảy ra lỗi khi tải thiết bị');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDevices();
+
+    // Setup Socket.IO
+    const newSocket = io(SOCKET_URL);
+    setSocket(newSocket);
+
+    newSocket.on('connect', () => {
+      console.log('Socket connected');
+      newSocket.emit('join:farm', { userId });
+    });
+
+    newSocket.on('device:status', (data: any) => {
+      // Update local state without full reload
+      setDevices((prevDevices) =>
+        prevDevices.map((device) =>
+          device.id === data.device_id
+            ? { ...device, currentStatus: data.status }
+            : device
+        )
+      );
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 2000);
+    fetchDevices();
   };
+
+  const activeCount = devices.filter((d) => d.currentStatus === 'ON').length;
+
+  const filteredDevices = devices.filter((device) => {
+    if (filter === 'ALL') return true;
+    return device.currentStatus === filter;
+  });
 
   const getDeviceIcon = (type: string) => {
     switch (type) {
-      case 'sensor':
-        return 'sensors';
-      case 'camera':
-        return 'camera-alt';
-      case 'actuator':
-        return 'settings-remote';
-      default:
-        return 'device-unknown';
+      case 'feeder': return 'restaurant';
+      case 'water': return 'water';
+      case 'fan': return 'aperture';
+      case 'heater': return 'sunny';
+      case 'washer': return 'sparkles';
+      default: return 'hardware-chip';
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'online':
-        return COLORS.secondary;
-      case 'offline':
-        return COLORS.danger;
-      default:
-        return COLORS.gray;
+  const toggleDevice = async (device: BarnDevice) => {
+    const previousStatus = device.currentStatus;
+    const newStatus = previousStatus === 'ON' ? 'OFF' : 'ON';
+
+    // Optimistic Update
+    setDevices((prev) =>
+      prev.map((d) => (d.id === device.id ? { ...d, currentStatus: newStatus } : d))
+    );
+
+    try {
+      const response = await deviceApi.control({
+        deviceId: device.id,
+        action: newStatus,
+      });
+
+      if (!response.data.success) {
+        throw new Error('API reported failure');
+      }
+    } catch (err) {
+      console.error('Toggle error:', err);
+      // Revert on failure
+      setDevices((prev) =>
+        prev.map((d) => (d.id === device.id ? { ...d, currentStatus: previousStatus } : d))
+      );
+      Alert.alert('Lỗi', 'Không thể điều khiển thiết bị, vui lòng thử lại.');
     }
   };
 
-  const getBatteryColor = (battery: number) => {
-    if (battery > 60) return COLORS.secondary;
-    if (battery > 30) return COLORS.warning;
-    return COLORS.danger;
+  const renderDeviceCard = ({ item }: { item: BarnDevice }) => {
+    const isON = item.currentStatus === 'ON';
+
+    return (
+      <View style={[styles.card, isON && styles.cardActive]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.iconContainer, isON ? styles.iconActive : styles.iconInactive]}>
+            <Icon
+              name={getDeviceIcon(item.deviceType)}
+              size={28}
+              color={isON ? COLORS.primary : COLORS.gray}
+            />
+          </View>
+          <Switch
+            value={isON}
+            onValueChange={() => toggleDevice(item)}
+            trackColor={{ false: COLORS.lightGray, true: COLORS.secondary }}
+            thumbColor={COLORS.white}
+          />
+        </View>
+        <Text style={[styles.deviceName, isON && styles.textActive]} numberOfLines={1}>
+          {item.name}
+        </Text>
+        <Text style={styles.deviceType}>{item.deviceType.toUpperCase()}</Text>
+      </View>
+    );
   };
 
-  const filteredDevices = mockDevices.filter(device => 
-    selectedBarn === 'all' || device.barnId.toString() === selectedBarn
-  );
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchDevices}>
+          <Text style={styles.retryText}>Thử lại</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color={COLORS.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Thiết bị</Text>
-        <TouchableOpacity style={styles.addButton}>
-          <Icon name="add" size={24} color={COLORS.white} />
-        </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Thiết bị</Text>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{activeCount} đang bật</Text>
+          </View>
+        </View>
       </View>
 
-      {/* Barn Filter */}
       <View style={styles.filterContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {['all', '1', '2', '3'].map((barn) => (
+          {[
+            { id: 'ALL', label: 'Tất cả' },
+            { id: 'ON', label: 'Đang bật' },
+            { id: 'OFF', label: 'Đã tắt' },
+          ].map((tab) => (
             <TouchableOpacity
-              key={barn}
+              key={tab.id}
               style={[
-                styles.barnFilter,
-                selectedBarn === barn && styles.barnFilterActive,
+                styles.filterTab,
+                filter === tab.id && styles.filterTabActive,
               ]}
-              onPress={() => setSelectedBarn(barn)}
+              onPress={() => setFilter(tab.id as 'ALL' | 'ON' | 'OFF')}
             >
               <Text
                 style={[
-                  styles.barnFilterText,
-                  selectedBarn === barn && styles.barnFilterTextActive,
+                  styles.filterText,
+                  filter === tab.id && styles.filterTextActive,
                 ]}
               >
-                {barn === 'all' ? 'Tất cả chuồng' : `Chuồng ${barn}`}
+                {tab.label}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
+      <FlatList
+        data={filteredDevices}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderDeviceCard}
+        numColumns={2}
+        contentContainerStyle={styles.gridContainer}
+        columnWrapperStyle={styles.row}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
         }
-      >
-        {filteredDevices.map((device) => (
-          <View key={device.id} style={styles.deviceCard}>
-            <View style={styles.deviceHeader}>
-              <View style={styles.deviceInfo}>
-                <View style={styles.deviceIcon}>
-                  <Icon 
-                    name={getDeviceIcon(device.type)} 
-                    size={24} 
-                    color={COLORS.primary} 
-                  />
-                </View>
-                <View style={styles.deviceDetails}>
-                  <Text style={styles.deviceName}>{device.name}</Text>
-                  <Text style={styles.deviceLocation}>{device.barnName}</Text>
-                </View>
-              </View>
-              <View style={styles.deviceStatus}>
-                <View style={[styles.statusDot, { backgroundColor: getStatusColor(device.status) }]} />
-                <Text style={[styles.statusText, { color: getStatusColor(device.status) }]}>
-                  {device.status === 'online' ? 'Online' : 'Offline'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.deviceData}>
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Lần cuối:</Text>
-                <Text style={styles.dataValue}>{device.lastSeen}</Text>
-              </View>
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Pin:</Text>
-                <View style={styles.batteryContainer}>
-                  <Icon 
-                    name="battery-full" 
-                    size={16} 
-                    color={getBatteryColor(device.battery)} 
-                  />
-                  <Text style={[styles.dataValue, { color: getBatteryColor(device.battery) }]}>
-                    {device.battery}%
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {device.data && (
-              <View style={styles.sensorData}>
-                {Object.entries(device.data).map(([key, value]) => (
-                  <View key={key} style={styles.dataItem}>
-                    <Text style={styles.dataKey}>{key}:</Text>
-                    <Text style={styles.dataValue}>{value}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <View style={styles.deviceActions}>
-              <TouchableOpacity style={styles.actionButton}>
-                <Icon name="settings" size={20} color={COLORS.primary} />
-                <Text style={styles.actionText}>Cài đặt</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton}>
-                <Icon name="refresh" size={20} color={COLORS.primary} />
-                <Text style={styles.actionText}>Làm mới</Text>
-              </TouchableOpacity>
-              {device.type === 'actuator' && (
-                <TouchableOpacity style={styles.actionButton}>
-                  <Icon name="power-settings-new" size={20} color={COLORS.primary} />
-                  <Text style={styles.actionText}>Điều khiển</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>Không có thiết bị nào</Text>
           </View>
-        ))}
-      </ScrollView>
+        }
+      />
     </SafeAreaView>
   );
 };
@@ -252,175 +254,143 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  errorText: {
+    fontSize: 16,
+    color: COLORS.danger,
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  header: {
     padding: 16,
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: COLORS.lightGray,
+  },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: COLORS.text,
+    marginRight: 12,
   },
-  backButton: {
-    padding: 8,
+  badge: {
+    backgroundColor: COLORS.secondary,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  addButton: {
-    backgroundColor: COLORS.primary,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  badgeText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   filterContainer: {
     backgroundColor: COLORS.white,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: COLORS.lightGray,
   },
-  barnFilter: {
+  filterTab: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: COLORS.background,
     marginRight: 8,
   },
-  barnFilterActive: {
+  filterTabActive: {
     backgroundColor: COLORS.primary,
   },
-  barnFilterText: {
+  filterText: {
     fontSize: 14,
     color: COLORS.gray,
     fontWeight: '500',
   },
-  barnFilterTextActive: {
+  filterTextActive: {
     color: COLORS.white,
   },
-  scrollView: {
-    flex: 1,
-    padding: 16,
+  gridContainer: {
+    padding: 12,
   },
-  deviceCard: {
+  row: {
+    justifyContent: 'space-between',
+  },
+  card: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 16,
+    width: '48%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  deviceHeader: {
+  cardActive: {
+    backgroundColor: '#E8F5E9',
+    borderColor: COLORS.secondary,
+  },
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
-  deviceInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  deviceIcon: {
+  iconContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
-  deviceDetails: {
-    flex: 1,
+  iconActive: {
+    backgroundColor: '#C8E6C9',
+  },
+  iconInactive: {
+    backgroundColor: COLORS.lightGray,
   },
   deviceName: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  deviceLocation: {
-    fontSize: 14,
-    color: COLORS.gray,
-  },
-  deviceStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  deviceData: {
-    marginBottom: 12,
-  },
-  dataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  dataLabel: {
-    fontSize: 14,
-    color: COLORS.gray,
-  },
-  dataValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: COLORS.text,
-  },
-  batteryContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  sensorData: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  dataItem: {
-    width: '50%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  dataKey: {
-    fontSize: 12,
-    color: COLORS.gray,
-    textTransform: 'capitalize',
-  },
-  deviceActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.background,
-    paddingTop: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  actionText: {
-    fontSize: 12,
+  textActive: {
     color: COLORS.primary,
-    marginLeft: 4,
-    fontWeight: '500',
+  },
+  deviceType: {
+    fontSize: 12,
+    color: COLORS.gray,
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: COLORS.gray,
+    fontSize: 16,
   },
 });
 
-export default DeviceScreen;
+export default DevicesScreen;

@@ -10,8 +10,8 @@ const api = axios.create({
 
 // Interceptor: Add JWT token to Authorization header
 api.interceptors.request.use(
-  async (config) => {
-    const token = await AsyncStorage.getItem('token');
+  (config) => {
+    const token = useAuthStore.getState().token;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -49,8 +49,8 @@ export const barnApi = {
 
 // Devices APIs
 export const deviceApi = {
-  getBarnDevices: (barnId: number) => api.get(`/devices/barn/${barnId}`),
-  control: (data: any) => api.post('/devices/control', data),
+  getBarnDevices: (barnId: number) => api.get(`/barns/${barnId}/devices`),
+  control: (data: { deviceId: number; action: string }) => api.post(`/devices/${data.deviceId}/control`, { action: data.action }),
   getLogs: (deviceId: number) => api.get(`/devices/${deviceId}/logs`),
 };
 
