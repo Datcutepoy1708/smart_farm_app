@@ -18,6 +18,7 @@ import NotesScreen from '../screens/notes/NotesScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import FarmAIScreen from '@/screens/farmai/FarmAIScreen';
 import NutritionScreen from '@/screens/nutrition/NutritionScreen';
+import OverviewScreen from '@/screens/overview/OverviewScreen';
 
 export type DrawerParamList = {
   MainTabs: undefined;
@@ -32,8 +33,6 @@ export type DrawerParamList = {
 };
 
 const Drawer = createDrawerNavigator<DrawerParamList>();
-
-const OverviewScreen: React.FC = () => <PlaceholderScreen title="Tổng quan" />;
 
 const CameraScreen: React.FC = () => <PlaceholderScreen title="Camera / YOLO" />;
 

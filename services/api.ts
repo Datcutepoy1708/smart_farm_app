@@ -41,6 +41,7 @@ export const authApi = {
 
 // Barns APIs
 export const barnApi = {
+  getOverview: () => api.get('/barns/overview'),
   getAll: () => api.get('/barns'),
   getOne: (id: number) => api.get(`/barns/${id}`),
   create: (data: any) => api.post('/barns', data),
