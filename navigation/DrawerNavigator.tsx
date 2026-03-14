@@ -11,12 +11,13 @@ import { COLORS } from '../constants/config';
 import BottomTabNavigator from './BottomTabNavigator';
 import PlaceholderScreen from '../screens/placeholder/PlaceholderScreen';
 import LogoutScreen from '../screens/auth/LogoutScreen';
-import NutritionScreen from '../screens/placeholder/NutritionScreen';
+
 import ScheduleScreen from '../screens/schedule/ScheduleScreen';
 import FeedAnalysisScreen from '../screens/feed/FeedAnalysisScreen';
 import NotesScreen from '../screens/notes/NotesScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import FarmAIScreen from '@/screens/farmai/FarmAIScreen';
+import NutritionScreen from '@/screens/nutrition/NutritionScreen';
 
 export type DrawerParamList = {
   MainTabs: undefined;
