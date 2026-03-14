@@ -69,6 +69,15 @@ export const feedApi = {
   getHistory: (barnId: number, days: number = 7) => api.get(`/barns/${barnId}/feed/history?days=${days}`),
 };
 
+// Schedules APIs
+export const scheduleApi = {
+  getBarnSchedules: (barnId: number) => api.get(`/barns/${barnId}/schedules`),
+  getOne: (id: number) => api.get(`/schedules/${id}`),
+  create: (data: any) => api.post('/schedules', data),
+  update: (id: number, data: any) => api.patch(`/schedules/${id}`, data),
+  remove: (id: number) => api.delete(`/schedules/${id}`),
+};
+
 // Environment APIs
 export const environmentApi = {
   getLogs: (barnId: number) => api.get(`/environment/logs/${barnId}`),
