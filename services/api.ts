@@ -64,6 +64,9 @@ export const flockApi = {
 export const feedApi = {
   getCalculations: (barnId: number) => api.get(`/feed/calculations/${barnId}`),
   logFeed: (data: any) => api.post('/feed/log', data),
+  calculate: (barnId: number) => api.get(`/barns/${barnId}/feed/calculate`),
+  getToday: (barnId: number) => api.get(`/barns/${barnId}/feed/today`),
+  getHistory: (barnId: number, days: number = 7) => api.get(`/barns/${barnId}/feed/history?days=${days}`),
 };
 
 // Environment APIs

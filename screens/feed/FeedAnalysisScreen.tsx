@@ -1,109 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert as RNAlert,
+  ActivityIndicator,
   FlatList,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
+import { feedApi } from '../../services/api';
+// Assumes react-native-chart-kit is installed as per package.json
+import { BarChart } from 'react-native-chart-kit';
 
-interface FeedData {
-  id: number;
-  barnId: number;
-  barnName: string;
-  date: string;
-  feedType: string;
-  quantity: number;
-  unit: string;
-  cost: number;
-  efficiency: number;
-  notes?: string;
-}
+const screenWidth = Dimensions.get('window').width;
 
 const FeedAnalysisScreen = () => {
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'analysis'>('overview');
-  const [feedData, setFeedData] = useState<FeedData[]>([
-    {
-      id: 1,
-      barnId: 1,
-      barnName: 'Chuồng 01',
-      date: '2024-03-12',
-      feedType: 'Thức ăn khởi động',
-      quantity: 50,
-      unit: 'kg',
-      cost: 1500000,
-      efficiency: 85,
-      notes: 'Gà ăn tốt, tăng trưởng bình thường'
-    },
-    {
-      id: 2,
-      barnId: 2,
-      barnName: 'Chuồng 02',
-      date: '2024-03-12',
-      feedType: 'Thức ăn chính',
-      quantity: 60,
-      unit: 'kg',
-      cost: 1800000,
-      efficiency: 78,
-      notes: 'Cần theo dõi thêm về hiệu suất'
-    },
-  ]);
-  const navigaiton=useNavigation();
-  const getEfficiencyColor = (efficiency: number) => {
-    if (efficiency >= 85) return COLORS.success;
-    if (efficiency >= 75) return COLORS.warning;
-    return COLORS.danger;
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'history'>('overview');
+  
+  const [loading, setLoading] = useState(true);
+  const [todayData, setTodayData] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+
+  // Hardcode barnId = 1 temporarily as requested
+  const barnId = 1;
+  const navigation = useNavigation();
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      // Run calculate to ensure fresh recommendation, then fetch today & history
+      await feedApi.calculate(barnId);
+      
+      const [todayRes, historyRes] = await Promise.all([
+        feedApi.getToday(barnId),
+        feedApi.getHistory(barnId, 7)
+      ]);
+
+      setTodayData(todayRes.data);
+      // Reverse history so oldest is first for the chart left-to-right reading
+      setHistoryData(historyRes.data.reverse());
+    } catch (error) {
+      console.error('Failed to fetch feed data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getEfficiencyIcon = (efficiency: number) => {
-    if (efficiency >= 85) return 'trending-up';
-    if (efficiency >= 75) return 'trending-flat';
-    return 'trending-down';
+  const getPercentageColor = (percentage: number) => {
+    if (percentage < 90) return COLORS.warning;
+    if (percentage > 110) return COLORS.danger;
+    return COLORS.primary; // Healthy zone 90-110%
   };
-
-  const totalQuantity = feedData.reduce((sum, item) => sum + item.quantity, 0);
-  const totalCost = feedData.reduce((sum, item) => sum + item.cost, 0);
-  const avgEfficiency = feedData.reduce((sum, item) => sum + item.efficiency, 0) / feedData.length;
-
-  const renderFeedItem = ({ item }: { item: FeedData }) => (
-    <View style={styles.feedCard}>
-      <View style={styles.feedHeader}>
-        <View style={styles.feedInfo}>
-          <Text style={styles.barnName}>{item.barnName}</Text>
-          <Text style={styles.feedDate}>{item.date}</Text>
-        </View>
-        <View style={[styles.efficiencyBadge, { backgroundColor: getEfficiencyColor(item.efficiency) }]}>
-          <Icon name={getEfficiencyIcon(item.efficiency)} size={16} color={COLORS.white} />
-          <Text style={styles.efficiencyText}>{item.efficiency}%</Text>
-        </View>
-      </View>
-      
-      <View style={styles.feedDetails}>
-        <View style={styles.feedRow}>
-          <Text style={styles.feedLabel}>Loại thức ăn:</Text>
-          <Text style={styles.feedValue}>{item.feedType}</Text>
-        </View>
-        <View style={styles.feedRow}>
-          <Text style={styles.feedLabel}>Số lượng:</Text>
-          <Text style={styles.feedValue}>{item.quantity} {item.unit}</Text>
-        </View>
-        <View style={styles.feedRow}>
-          <Text style={styles.feedLabel}>Chi phí:</Text>
-          <Text style={styles.feedValue}>{item.cost.toLocaleString('vi-VN')} đ</Text>
-        </View>
-      </View>
-      
-      {item.notes && (
-        <Text style={styles.feedNotes}>Ghi chú: {item.notes}</Text>
-      )}
-    </View>
-  );
 
   const renderOverviewCard = (title: string, value: string | number, icon: string, color: string) => (
     <View style={[styles.overviewCard, { borderLeftColor: color }]}>
@@ -117,19 +73,117 @@ const FeedAnalysisScreen = () => {
     </View>
   );
 
+  const renderProgressBar = () => {
+    if (!todayData) return null;
+    
+    const { consumedGram, recommendedGram, percentage } = todayData;
+    const isWarning = percentage < 90 || percentage > 110;
+    const progressColor = getPercentageColor(percentage);
+    
+    // Cap visual progress at 100% so it doesn't overflow container visually
+    const visualWidth = Math.min(percentage, 100);
+
+    return (
+      <View style={styles.progressContainer}>
+        <View style={styles.progressHeader}>
+          <Text style={styles.progressTitle}>Tiến độ tiêu thụ hôm nay</Text>
+          {isWarning && (
+            <View style={[styles.badge, styles.badgeWarning]}>
+              <Icon name="warning" size={12} color={COLORS.white} />
+              <Text style={styles.badgeText}>
+                {percentage < 90 ? 'Thiếu hụt' : 'Vượt mức'}
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: `${visualWidth}%`, backgroundColor: progressColor }]} />
+        </View>
+        <View style={styles.progressFooter}>
+          <Text style={styles.progressText}>
+            {(consumedGram / 1000).toFixed(2)} kg / {(recommendedGram / 1000).toFixed(2)} kg
+          </Text>
+          <Text style={[styles.progressPercentage, { color: progressColor }]}>
+            {percentage}%
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderChart = () => {
+    if (historyData.length === 0) return null;
+
+    const labels = historyData.map(d => d.date.substring(5)); // just MM-DD
+    const consumed = historyData.map(d => d.consumedGram / 1000); // map to kg
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>Tiêu thụ 7 ngày qua (kg)</Text>
+        <BarChart
+          data={{
+            labels,
+            datasets: [{ data: consumed }]
+          }}
+          width={screenWidth - 64} // padding adjustment
+          height={220}
+          yAxisLabel=""
+          yAxisSuffix=" kg"
+          fromZero
+          chartConfig={{
+            backgroundColor: COLORS.white,
+            backgroundGradientFrom: COLORS.white,
+            backgroundGradientTo: COLORS.white,
+            decimalPlaces: 1,
+            color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`, // COLORS.primary roughly
+            labelColor: (opacity = 1) => COLORS.gray,
+            barPercentage: 0.6,
+          }}
+          style={{
+            marginVertical: 8,
+            borderRadius: 16,
+          }}
+        />
+      </View>
+    );
+  };
+
+  const renderHistoryItem = ({ item }: { item: any }) => (
+    <View style={styles.historyCard}>
+      <View style={styles.historyHeader}>
+        <Text style={styles.historyDate}>{item.date}</Text>
+        <View style={[styles.percentageBadge, { backgroundColor: getPercentageColor(item.percentage) }]}>
+          <Text style={styles.percentageText}>{item.percentage}%</Text>
+        </View>
+      </View>
+      
+      <View style={styles.historyDetails}>
+        <View style={styles.historyRow}>
+          <Text style={styles.historyLabel}>Thực tế:</Text>
+          <Text style={styles.historyValue}>{(item.consumedGram / 1000).toFixed(2)} kg</Text>
+        </View>
+        <View style={styles.historyRow}>
+          <Text style={styles.historyLabel}>Khuyến nghị:</Text>
+          <Text style={styles.historyValue}>{(item.recommendedGram / 1000).toFixed(2)} kg</Text>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigaiton.goBack()}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={24} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Phân tích thức ăn</Text>
-        <View style={styles.placeholder} />
+        <TouchableOpacity style={styles.refreshButton} onPress={fetchData}>
+          <Icon name="refresh" size={24} color={COLORS.white} />
+        </TouchableOpacity>
       </View>
 
-      {/* Tab Navigation */}
       <View style={styles.tabContainer}>
-        {['overview', 'history', 'analysis'].map((tab) => (
+        {['overview', 'history'].map((tab) => (
           <TouchableOpacity
             key={tab}
             style={[
@@ -142,91 +196,68 @@ const FeedAnalysisScreen = () => {
               styles.tabText,
               selectedTab === tab && styles.activeTabText
             ]}>
-              {tab === 'overview' ? 'Tổng quan' :
-               tab === 'history' ? 'Lịch sử' : 'Phân tích'}
+              {tab === 'overview' ? 'Tổng quan' : 'Lịch sử 7 ngày'}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <View style={styles.scrollView}>
-        {selectedTab === 'overview' && (
-          <ScrollView contentContainerStyle={styles.section}>
-            <Text style={styles.sectionTitle}>Tổng quan hôm nay</Text>
-            <View style={styles.overviewGrid}>
-              {renderOverviewCard(
-                'Tổng lượng',
-                `${totalQuantity} kg`,
-                'scale',
-                COLORS.primary
-              )}
-              {renderOverviewCard(
-                'Tổng chi phí',
-                `${totalCost.toLocaleString('vi-VN')} đ`,
-                'payments',
-                COLORS.warning
-              )}
-              {renderOverviewCard(
-                'Hiệu suất TB',
-                `${avgEfficiency.toFixed(1)}%`,
-                'trending-up',
-                getEfficiencyColor(avgEfficiency)
-              )}
-            </View>
-            
-            <View style={styles.chartContainer}>
-              <Text style={styles.chartTitle}>Biểu đồ hiệu suất</Text>
-              <View style={styles.chartPlaceholder}>
-                <Icon name="insert-chart" size={48} color={COLORS.gray} />
-                <Text style={styles.chartText}>Biểu đồ đang phát triển...</Text>
-              </View>
-            </View>
-          </ScrollView>
-        )}
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loaderText}>Đang tải dữ liệu...</Text>
+        </View>
+      ) : (
+        <View style={styles.scrollView}>
+          {selectedTab === 'overview' && todayData && (
+            <ScrollView contentContainerStyle={styles.section}>
+              {renderProgressBar()}
 
-        {selectedTab === 'history' && (
-          <View style={[styles.section, { flex: 1, paddingBottom: 0 }]}>
-            <Text style={styles.sectionTitle}>Lịch sử cấp thức ăn</Text>
-            <FlatList
-              data={feedData}
-              renderItem={renderFeedItem}
-              keyExtractor={(item) => item.id.toString()}
-              contentContainerStyle={styles.listContainer}
-              showsVerticalScrollIndicator={false}
-            />
-          </View>
-        )}
-
-        {selectedTab === 'analysis' && (
-          <ScrollView contentContainerStyle={styles.section}>
-            <Text style={styles.sectionTitle}>Phân tích chi tiết</Text>
-            <View style={styles.analysisContainer}>
-              <View style={styles.analysisCard}>
-                <Text style={styles.analysisTitle}>Hiệu suất theo chuồng</Text>
-                <View style={styles.analysisChart}>
-                  <Text style={styles.analysisText}>Biểu đồ đang phát triển...</Text>
-                </View>
+              <Text style={styles.sectionTitle}>Thông tin đàn & dinh dưỡng</Text>
+              <View style={styles.overviewGrid}>
+                {renderOverviewCard(
+                  'Giai đoạn',
+                  todayData.stage.toUpperCase(),
+                  'schedule',
+                  COLORS.primary
+                )}
+                {renderOverviewCard(
+                  'Protein',
+                  todayData.nutrition?.proteinPct ? `${todayData.nutrition.proteinPct}%` : 'N/A',
+                  'fitness-center',
+                  COLORS.secondary
+                )}
+                {renderOverviewCard(
+                  'Năng lượng',
+                  todayData.nutrition?.energyKcalPerKg ? `${todayData.nutrition.energyKcalPerKg} kcal` : 'N/A',
+                  'bolt',
+                  COLORS.warning
+                )}
+                {renderOverviewCard(
+                  'Khuyến nghị',
+                  todayData.recommendedGram ? `${(todayData.recommendedGram/1000).toFixed(2)} kg` : '0 kg',
+                  'restaurant',
+                  COLORS.primary
+                )}
               </View>
               
-              <View style={styles.analysisCard}>
-                <Text style={styles.analysisTitle}>Chi phí theo thời gian</Text>
-                <View style={styles.analysisChart}>
-                  <Text style={styles.analysisText}>Biểu đồ đang phát triển...</Text>
-                </View>
-              </View>
-              
-              <View style={styles.analysisCard}>
-                <Text style={styles.analysisTitle}>Gợi ý tối ưu</Text>
-                <View style={styles.suggestions}>
-                  <Text style={styles.suggestionText}>• Giảm lượng thức ăn 5% cho chuồng 02</Text>
-                  <Text style={styles.suggestionText}>• Tăng protein trong thức ăn khởi động</Text>
-                  <Text style={styles.suggestionText}>• Theo dõi hiệu suất chuồng 01 kỹ hơn</Text>
-                </View>
-              </View>
+              {renderChart()}
+            </ScrollView>
+          )}
+
+          {selectedTab === 'history' && (
+            <View style={[styles.section, { flex: 1, paddingBottom: 0 }]}>
+              <FlatList
+                data={[...historyData].reverse()} // Show newest first in list
+                renderItem={renderHistoryItem}
+                keyExtractor={(item) => item.date}
+                contentContainerStyle={styles.listContainer}
+                showsVerticalScrollIndicator={false}
+              />
             </View>
-          </ScrollView>
-        )}
-      </View>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -251,8 +282,8 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 8,
   },
-  placeholder: {
-    width: 40,
+  refreshButton: {
+    padding: 8,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -289,7 +320,83 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.text,
     marginBottom: 16,
+    marginTop: 8,
   },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loaderText: {
+    marginTop: 12,
+    color: COLORS.gray,
+  },
+  
+  // Progress Bar Styles
+  progressContainer: {
+    backgroundColor: COLORS.white,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  progressTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeWarning: {
+    backgroundColor: COLORS.warning,
+  },
+  badgeText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  progressBarBg: {
+    height: 12,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+  progressFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressText: {
+    fontSize: 14,
+    color: COLORS.gray,
+  },
+  progressPercentage: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  // Overview Cards
   overviewGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -311,25 +418,28 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
   },
   overviewIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   overviewContent: {
     flex: 1,
   },
   overviewTitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.gray,
     marginBottom: 4,
   },
   overviewValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: COLORS.text,
   },
+
+  // Chart
   chartContainer: {
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: 16,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -340,21 +450,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
+    alignSelf: 'flex-start',
     marginBottom: 16,
   },
-  chartPlaceholder: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  chartText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginTop: 12,
-  },
+
+  // History List
   listContainer: {
     paddingBottom: 16,
   },
-  feedCard: {
+  historyCard: {
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: 16,
@@ -365,95 +469,45 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  feedHeader: {
+  historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 8,
   },
-  feedInfo: {
-    flex: 1,
-  },
-  barnName: {
+  historyDate: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 4,
   },
-  feedDate: {
-    fontSize: 12,
-    color: COLORS.gray,
-  },
-  efficiencyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  percentageBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  efficiencyText: {
+  percentageText: {
     fontSize: 12,
     color: COLORS.white,
-    marginLeft: 4,
     fontWeight: '600',
   },
-  feedDetails: {
-    marginBottom: 12,
-  },
-  feedRow: {
+  historyDetails: {},
+  historyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  feedLabel: {
+  historyLabel: {
     fontSize: 14,
     color: COLORS.gray,
   },
-  feedValue: {
+  historyValue: {
     fontSize: 14,
     fontWeight: '500',
     color: COLORS.text,
-  },
-  feedNotes: {
-    fontSize: 12,
-    color: COLORS.gray,
-    fontStyle: 'italic',
-  },
-  analysisContainer: {
-    gap: 16,
-  },
-  analysisCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  analysisTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 16,
-  },
-  analysisChart: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  analysisText: {
-    fontSize: 14,
-    color: COLORS.gray,
-  },
-  suggestions: {
-    gap: 8,
-  },
-  suggestionText: {
-    fontSize: 14,
-    color: COLORS.text,
-    lineHeight: 20,
   },
 });
 
