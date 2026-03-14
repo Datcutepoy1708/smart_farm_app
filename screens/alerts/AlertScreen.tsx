@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,82 +6,151 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert as RNAlert,
+  ActivityIndicator,
+  AlertButton,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
+import { alertApi } from '../../services/api';
+import socketService from '../../services/socket';
+
+const timeAgo = (dateInput: string | Date) => {
+  const date = new Date(dateInput);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  
+  if (seconds < 60) return 'Vừa xong';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+};
+
+
+interface AlertData {
+  id: number;
+  barnId: number;
+  alertType: string;
+  severity: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+  detailData?: any;
+}
 
 const AlertScreen = () => {
   const navigation = useNavigation();
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [alerts, setAlerts] = useState<AlertData[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  const mockAlerts = [
-    {
-      id: 1,
-      type: 'danger',
-      title: 'Nhiệt độ cao',
-      message: 'Chuồng 04 - Nhiệt độ vượt ngưỡng (38.5°C)',
-      time: '5 phút trước',
-      isRead: false,
-      barnId: 4,
-    },
-    {
-      id: 2,
-      type: 'warning',
-      title: 'Mức nước thấp',
-      message: 'Chuồng 02 - Mức nước dưới 20%',
-      time: '15 phút trước',
-      isRead: false,
-      barnId: 2,
-    },
-    {
-      id: 3,
-      type: 'info',
-      title: 'Đến lịch cho ăn',
-      message: 'Chuồng 01 - Cho ăn theo lịch trình',
-      time: '30 phút trước',
-      isRead: true,
-      barnId: 1,
-    },
-    {
-      id: 4,
-      type: 'success',
-      title: 'Hoàn thành chu kỳ',
-      message: 'Chuồng 03 - Gà đã đạt cân nặng mục tiêu',
-      time: '1 giờ trước',
-      isRead: true,
-      barnId: 3,
-    },
-  ];
+  // Hardcode barnId = 1 temporarily as described in requirements
+  const barnId = 1;
 
-  const getAlertIcon = (type: string) => {
-    switch (type) {
-      case 'danger':
+  useEffect(() => {
+    fetchAlerts();
+
+    // Listen for new alerts via socket
+    socketService.onNewAlert((newAlert: any) => {
+      if (newAlert.barnId === barnId || newAlert.barn_id === barnId) {
+        setAlerts((prev) => [
+          {
+            id: newAlert.id,
+            barnId: newAlert.barnId || newAlert.barn_id,
+            alertType: newAlert.alertType || newAlert.type,
+            severity: newAlert.severity,
+            message: newAlert.message,
+            isRead: false,
+            createdAt: newAlert.createdAt || new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+        setUnreadCount((prev) => prev + 1);
+      }
+    });
+
+    return () => {
+      // Need to cast to any since we changed the payload interface
+      socketService.offNewAlert(() => {}); 
+    };
+  }, []);
+
+  const fetchAlerts = async () => {
+    try {
+      setLoading(true);
+      const [alertsRes, unreadRes] = await Promise.all([
+        alertApi.getAll(barnId),
+        alertApi.getUnreadCount(barnId),
+      ]);
+      setAlerts(alertsRes.data);
+      setUnreadCount(unreadRes.data.unreadCount);
+    } catch (error) {
+      console.error('Failed to fetch alerts:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getAlertIcon = (severity: string, type: string) => {
+    if (type === 'high_temp') return { name: 'thermostat', color: COLORS.danger };
+    if (type === 'low_temp') return { name: 'ac-unit', color: COLORS.warning };
+    if (type === 'high_humidity') return { name: 'water-drop', color: COLORS.warning };
+
+    switch (severity) {
+      case 'critical':
         return { name: 'warning', color: COLORS.danger };
       case 'warning':
         return { name: 'error', color: COLORS.warning };
-      case 'success':
-        return { name: 'check-circle', color: COLORS.secondary };
+      case 'info':
+        return { name: 'info', color: COLORS.primary };
       default:
         return { name: 'info', color: COLORS.primary };
     }
   };
 
-  const handleAlertPress = (alert: any) => {
+  const handleAlertPress = (alert: AlertData) => {
+    const buttons: AlertButton[] = [];
+    if (!alert.isRead) {
+      buttons.push({ text: 'Đánh dấu đã đọc', onPress: () => markAsRead(alert.id) });
+    }
+    buttons.push({ text: 'Đóng', style: 'cancel' });
+
     RNAlert.alert(
-      alert.title,
+      'Chi tiết cảnh báo',
       alert.message,
-      [
-        { text: 'Xem chi tiết', onPress: () => console.log('View details') },
-        { text: 'Đánh dấu đã đọc', onPress: () => console.log('Mark as read') },
-        { text: 'Hủy', style: 'cancel' },
-      ]
+      buttons
     );
   };
 
-  const filteredAlerts = mockAlerts.filter(alert => 
-    selectedFilter === 'all' || alert.type === selectedFilter
+  const markAsRead = async (id: number) => {
+    try {
+      await alertApi.markRead(id);
+      setAlerts((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, isRead: true } : a))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Failed to mark read:', error);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await alertApi.markAllRead(barnId);
+      setAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
+  };
+
+  const filteredAlerts = alerts.filter(
+    (alert) => selectedFilter === 'all' || alert.severity === selectedFilter
   );
 
   return (
@@ -90,71 +159,93 @@ const AlertScreen = () => {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Cảnh báo</Text>
-        <TouchableOpacity style={styles.clearButton}>
-          <Icon name="clear-all" size={24} color={COLORS.primary} />
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Cảnh báo</Text>
+          {unreadCount > 0 && (
+            <View style={styles.headerBadge}>
+              <Text style={styles.headerBadgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity style={styles.clearButton} onPress={handleMarkAllRead}>
+          <Icon name="done-all" size={24} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
 
       {/* Filter Tabs */}
       <View style={styles.filterContainer}>
-        {['all', 'danger', 'warning', 'info', 'success'].map((filter) => (
+        {[
+          { id: 'all', label: 'Tất cả' },
+          { id: 'critical', label: 'Nghiêm trọng' },
+          { id: 'warning', label: 'Cảnh báo' },
+          { id: 'info', label: 'Thông tin' },
+        ].map((filter) => (
           <TouchableOpacity
-            key={filter}
+            key={filter.id}
             style={[
               styles.filterTab,
-              selectedFilter === filter && styles.filterTabActive,
+              selectedFilter === filter.id && styles.filterTabActive,
             ]}
-            onPress={() => setSelectedFilter(filter)}
+            onPress={() => setSelectedFilter(filter.id)}
           >
             <Text
               style={[
                 styles.filterText,
-                selectedFilter === filter && styles.filterTextActive,
+                selectedFilter === filter.id && styles.filterTextActive,
               ]}
             >
-              {filter === 'all' ? 'Tất cả' : 
-               filter === 'danger' ? 'Nguy hiểm' :
-               filter === 'warning' ? 'Cảnh báo' :
-               filter === 'info' ? 'Thông tin' : 'Thành công'}
+              {filter.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
       <ScrollView style={styles.scrollView}>
-        {filteredAlerts.map((alert) => {
-          const icon = getAlertIcon(alert.type);
-          return (
-            <TouchableOpacity
-              key={alert.id}
-              style={[
-                styles.alertItem,
-                !alert.isRead && styles.unreadAlert,
-              ]}
-              onPress={() => handleAlertPress(alert)}
-            >
-              <View style={styles.alertIcon}>
-                <Icon name={icon.name} size={24} color={icon.color} />
-              </View>
-              <View style={styles.alertContent}>
-                <View style={styles.alertHeader}>
-                  <Text style={styles.alertTitle}>{alert.title}</Text>
-                  <Text style={styles.alertTime}>{alert.time}</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 20 }} />
+        ) : filteredAlerts.length === 0 ? (
+          <Text style={styles.emptyText}>Không có cảnh báo nào</Text>
+        ) : (
+          filteredAlerts.map((alert) => {
+            const icon = getAlertIcon(alert.severity, alert.alertType);
+            return (
+              <TouchableOpacity
+                key={alert.id.toString()}
+                style={[
+                  styles.alertItem,
+                  !alert.isRead && styles.unreadAlert,
+                ]}
+                onPress={() => handleAlertPress(alert)}
+              >
+                <View style={styles.alertIcon}>
+                  <Icon name={icon.name} size={24} color={icon.color} />
                 </View>
-                <Text style={styles.alertMessage}>{alert.message}</Text>
-                <View style={styles.alertMeta}>
-                  <Text style={styles.barnText}>Chuồng {alert.barnId}</Text>
-                  {!alert.isRead && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>Mới</Text>
-                    </View>
-                  )}
+                <View style={styles.alertContent}>
+                  <View style={styles.alertHeader}>
+                    <Text style={[styles.alertTitle, { color: icon.color }]}>
+                      {alert.severity === 'critical' ? 'Lỗi Nghiêm Trọng' : 
+                       alert.severity === 'warning' ? 'Cảnh Báo' : 'Thông Tin'}
+                    </Text>
+                    <Text style={styles.alertTime}>
+                      {timeAgo(alert.createdAt)}
+                    </Text>
+                  </View>
+                  <Text style={styles.alertMessage} numberOfLines={2}>
+                    {alert.message}
+                  </Text>
+                  <View style={styles.alertMeta}>
+                    <Text style={styles.barnText}>Chuồng {alert.barnId}</Text>
+                    {!alert.isRead && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadText}>Mới</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+              </TouchableOpacity>
+            );
+          })
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -174,10 +265,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.text,
+  },
+  headerBadge: {
+    backgroundColor: 'red',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  headerBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   backButton: {
     padding: 8,
@@ -252,7 +359,6 @@ const styles = StyleSheet.create({
   alertTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: COLORS.text,
     flex: 1,
   },
   alertTime: {
@@ -285,6 +391,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: COLORS.white,
     fontWeight: '600',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: COLORS.gray,
+    marginTop: 20,
   },
 });
 

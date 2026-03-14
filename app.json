@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "SmartFarm",
-    "slug": "SmartFarm",
+    "name": "Smart Farm",
+    "slug": "smart-farm",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon.png",
     "scheme": "smartfarm",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2D6A2D"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -20,9 +20,10 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundColor": "#FFFFFF"
-      }
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2D6A2D"
+      },
+      "package": "com.smartfarm.app"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"

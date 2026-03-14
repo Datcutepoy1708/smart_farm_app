@@ -73,8 +73,10 @@ export const environmentApi = {
 
 // Alerts APIs
 export const alertApi = {
-  getAll: (barnId: number) => api.get(`/alerts/${barnId}`),
-  markRead: (id: string) => api.patch(`/alerts/${id}/read`),
+  getAll: (barnId: number) => api.get(`/barns/${barnId}/alerts`),
+  getUnreadCount: (barnId: number) => api.get(`/barns/${barnId}/alerts/unread-count`),
+  markRead: (id: number) => api.patch(`/alerts/${id}/read`),
+  markAllRead: (barnId: number) => api.patch(`/barns/${barnId}/alerts/read-all`),
 };
 
 // Notes APIs

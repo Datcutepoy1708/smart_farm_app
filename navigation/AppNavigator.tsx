@@ -10,6 +10,7 @@ import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import CreateNoteScreen from '../screens/notes/CreateNoteScreen';
 import UpdateNoteScreen from '../screens/notes/UpdateNoteScreen';
+import SplashScreen from '../screens/splash/SplashScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,14 +30,17 @@ const AuthNavigator = () => {
 
 const AppNavigator = () => {
   const { user, isLoading } = useAuth();
+  const [showSplash, setShowSplash] = React.useState(true);
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Đang tải...</Text>
-      </View>
-    );
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (showSplash || isLoading) {
+    return <SplashScreen />;
   }
 
   return (
