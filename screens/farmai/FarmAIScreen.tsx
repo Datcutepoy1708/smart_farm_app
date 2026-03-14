@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,358 +6,501 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert as RNAlert,
-  Image,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Animated,
+  Easing,
+  StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS } from '../../constants/config';
+import Voice, {
+  SpeechResultsEvent,
+  SpeechErrorEvent,
+} from '@react-native-voice/voice';
+import { farmAiApi } from '../../services/api';
 
-const FarmAIScreen = () => {
-  const navigation = useNavigation();
-  const [question, setQuestion] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisHistory, setAnalysisHistory] = useState([
-    {
-      id: 1,
-      question: 'Đàn gà chuồng 01 có dấu hiệu bệnh không?',
-      answer: 'Dựa trên hình ảnh và dữ liệu, đàn gà chuồng 01 đang có dấu hiệu khỏe mạnh. Tỷ lệ ăn uống bình thường, không có triệu chứng bệnh tật. Tiếp tục duy trì chế độ chăm sóc hiện tại.',
-      timestamp: '2024-03-12 10:30',
-      type: 'health'
-    },
-    {
-      id: 2,
-      question: 'Tối ưu lượng thức ăn cho gà 2 tuần tuổi',
-      answer: 'Đối với gà 2 tuần tuổi, khuyến cáo: 60-70g/con/ngày, chia 4-5 bữa. Protein 18-20%, đảm bảo nước sạch miễn phí. Theo dõi cân nặng hàng tuần.',
-      timestamp: '2024-03-11 14:15',
-      type: 'feeding'
-    }
-  ]);
+// ─── Colors ──────────────────────────────────────────────────────────────────
+const PRIMARY = '#2D6A2D';
+const SECONDARY = '#4CAF50';
+const BG = '#F5F5F5';
+const WHITE = '#FFFFFF';
 
-  const aiFeatures = [
-    {
-      id: 'health',
-      title: 'Phân tích sức khỏe',
-      icon: 'medical-services',
-      description: 'Chụp ảnh và nhận diện bệnh tật',
-      color: COLORS.danger
-    },
-    {
-      id: 'feeding',
-      title: 'Tối ưu thức ăn',
-      icon: 'restaurant',
-      description: 'Tính toán lượng thức ăn phù hợp',
-      color: COLORS.secondary
-    },
-    {
-      id: 'growth',
-      title: 'Dự báo tăng trưởng',
-      icon: 'trending-up',
-      description: 'Phân tích và dự báo tăng trưởng',
-      color: COLORS.primary
-    },
-    {
-      id: 'environment',
-      title: 'Môi trường chuồng',
-      icon: 'thermostat',
-      description: 'Tối ưu nhiệt độ, độ ẩm',
-      color: COLORS.warning
-    }
-  ];
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface ChatMessage {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
 
-  const handleAnalyze = () => {
-    if (!question.trim()) {
-      RNAlert.alert('Lỗi', 'Vui lòng nhập câu hỏi');
-      return;
-    }
+interface ApiChatMessage {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
 
-    setIsAnalyzing(true);
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+}
 
-    // TODO: Call AI API
-    setTimeout(() => {
-      const mockResponse = {
-        id: Date.now(),
-        question: question,
-        answer: 'Đang phân tích câu hỏi của bạn... Đây là câu trả lời mẫu từ AI. Trong thực tế, sẽ gọi API để phân tích và đưa ra câu trả lời chính xác.',
-        timestamp: new Date().toLocaleString('vi-VN'),
-        type: 'general'
-      };
+interface ChatReply {
+  reply: string;
+  contextUsed: Record<string, unknown>;
+}
 
-      setAnalysisHistory([mockResponse, ...analysisHistory]);
-      setQuestion('');
-      setIsAnalyzing(false);
-      
-      RNAlert.alert('Thành công', 'Đã phân tích xong!');
-    }, 2000);
-  };
+const BARN_ID = 1;
 
-  const renderAnalysisCard = (item: any) => (
-    <View key={item.id} style={styles.analysisCard}>
-      <View style={styles.analysisHeader}>
-        <View style={styles.analysisMeta}>
-          <Text style={styles.analysisQuestion}>{item.question}</Text>
-          <Text style={styles.analysisTime}>{item.timestamp}</Text>
-        </View>
-        <View style={[styles.analysisType, { backgroundColor: getAnalysisTypeColor(item.type) }]}>
-          <Text style={styles.analysisTypeText}>{getAnalysisTypeLabel(item.type)}</Text>
-        </View>
-      </View>
-      <Text style={styles.analysisAnswer}>{item.answer}</Text>
-    </View>
-  );
+const QUICK_ACTIONS = [
+  '🌡️ Nhiệt độ có ổn không?',
+  '🍽️ Tính khẩu phần hôm nay',
+  '🐔 Kiểm tra sức khỏe đàn gà',
+  '⚠️ Giải thích cảnh báo',
+  '💊 Phòng bệnh mùa này',
+];
 
-  const getAnalysisTypeColor = (type: string) => {
-    switch (type) {
-      case 'health': return COLORS.danger;
-      case 'feeding': return COLORS.secondary;
-      case 'growth': return COLORS.primary;
-      case 'environment': return COLORS.warning;
-      default: return COLORS.gray;
-    }
-  };
+const GREETING: ChatMessage = {
+  id: 0,
+  role: 'assistant',
+  content:
+    'Xin chào! Tôi là FarmAI 🌱\nTôi có thể giúp bạn quản lý đàn gà thịt hiệu quả hơn.\nHôm nay tôi có thể giúp gì cho bạn?',
+  createdAt: new Date().toISOString(),
+};
 
-  const getAnalysisTypeLabel = (type: string) => {
-    switch (type) {
-      case 'health': return 'Sức khỏe';
-      case 'feeding': return 'Thức ăn';
-      case 'growth': return 'Tăng trưởng';
-      case 'environment': return 'Môi trường';
-      default: return 'Chung';
-    }
-  };
+// ─── Typing indicator ─────────────────────────────────────────────────────────
+const TypingDots: React.FC = () => {
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
 
-  const renderFeatureCard = (feature: any) => (
-    <TouchableOpacity key={feature.id} style={styles.featureCard}>
-      <View style={[styles.featureIcon, { backgroundColor: feature.color + '20' }]}>
-        <Icon name={feature.icon} size={32} color={feature.color} />
-      </View>
-      <Text style={styles.featureTitle}>{feature.title}</Text>
-      <Text style={styles.featureDescription}>{feature.description}</Text>
-    </TouchableOpacity>
-  );
+  useEffect(() => {
+    const makeBounce = (dot: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: -6, duration: 300, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
+          Animated.timing(dot, { toValue: 0, duration: 300, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+          Animated.delay(600 - delay),
+        ])
+      );
+
+    const a1 = makeBounce(dot1, 0);
+    const a2 = makeBounce(dot2, 150);
+    const a3 = makeBounce(dot3, 300);
+    a1.start();
+    a2.start();
+    a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, [dot1, dot2, dot3]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.typingContainer}>
+      <View style={styles.avatarCircle}>
+        <Text style={styles.avatarEmoji}>🌱</Text>
+      </View>
+      <View style={styles.typingBubble}>
+        {[dot1, dot2, dot3].map((dot, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.typingDot, { transform: [{ translateY: dot }] }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// ─── Single Message Bubble ────────────────────────────────────────────────────
+const MessageBubble: React.FC<{ item: ChatMessage }> = ({ item }) => {
+  const isUser = item.role === 'user';
+  const time = new Date(item.createdAt).toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  if (isUser) {
+    return (
+      <View style={styles.userRow}>
+        <View style={styles.userBubble}>
+          <Text style={styles.userText}>{item.content}</Text>
+        </View>
+        <Text style={styles.timestampRight}>{time}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.assistantRow}>
+      <View style={styles.avatarCircle}>
+        <Text style={styles.avatarEmoji}>🌱</Text>
+      </View>
+      <View style={styles.assistantColumn}>
+        <View style={styles.assistantBubble}>
+          <Text style={styles.assistantText}>{item.content}</Text>
+        </View>
+        <Text style={styles.timestampLeft}>{time}</Text>
+      </View>
+    </View>
+  );
+};
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+const FarmAIScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const flatListRef = useRef<FlatList<ChatMessage>>(null);
+  const insets = useSafeAreaInsets();
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+
+  // ── Voice setup ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    Voice.onSpeechResults = (e: SpeechResultsEvent) => {
+      const result = e.value?.[0];
+      if (result) setInputText(result);
+      setIsRecording(false);
+    };
+    Voice.onSpeechError = (_e: SpeechErrorEvent) => setIsRecording(false);
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners).catch(() => null);
+    };
+  }, []);
+
+  const handleMic = async () => {
+    if (isRecording) {
+      await Voice.stop();
+      setIsRecording(false);
+    } else {
+      try {
+        setIsRecording(true);
+        await Voice.start('vi-VN');
+      } catch {
+        setIsRecording(false);
+      }
+    }
+  };
+
+  // ── Fetch history ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await farmAiApi.getChatHistory(BARN_ID, 20);
+        const data = (res.data as ApiResponse<ApiChatMessage[]>).data;
+        if (data.length === 0) {
+          setMessages([GREETING]);
+        } else {
+          setMessages(data);
+        }
+      } catch {
+        setMessages([GREETING]);
+      } finally {
+        setIsFetchingHistory(false);
+      }
+    };
+    loadHistory();
+  }, []);
+
+  // ── Auto scroll ──────────────────────────────────────────────────────────────
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0) scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  // ── Send message ─────────────────────────────────────────────────────────────
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isLoading) return;
+
+    const userMsg: ChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInputText('');
+    setIsLoading(true);
+
+    try {
+      const res = await farmAiApi.sendMessage({ barnId: BARN_ID, message: trimmed });
+      const { reply } = (res.data as ApiResponse<ChatReply>).data;
+      const aiMsg: ChatMessage = {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: reply,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      const errMsg: ChatMessage = {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: 'Xin lỗi, tôi gặp lỗi kết nối. Vui lòng thử lại sau.',
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
+  // ── Quick action ─────────────────────────────────────────────────────────────
+  const handleQuickAction = (action: string) => sendMessage(action);
+
+  // ── Header component (quick action chips) ───────────────────────────────────
+  const ListHeader = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.chipsRow}
+      contentContainerStyle={styles.chipsContent}
+    >
+      {QUICK_ACTIONS.map((action) => (
+        <TouchableOpacity
+          key={action}
+          style={styles.chip}
+          onPress={() => handleQuickAction(action)}
+          disabled={isLoading}
+        >
+          <Text style={styles.chipText}>{action}</Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  if (isFetchingHistory) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <ActivityIndicator size="large" color={PRIMARY} />
+        <Text style={styles.loadingText}>Đang tải lịch sử...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Header height offset for KeyboardAvoidingView
+  const statusBarHeight = StatusBar.currentHeight ?? 0;
+  const headerOffset = insets.top + statusBarHeight + 52; // 52 = approx header height
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color={COLORS.white} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={24} color={WHITE} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>FarmAI</Text>
-        <TouchableOpacity style={styles.headerButton}>
-          <Icon name="history" size={24} color={COLORS.white} />
-        </TouchableOpacity>
+        <View style={styles.headerTitle}>
+          <Text style={styles.headerTitleEmoji}>🌱</Text>
+          <Text style={styles.headerTitleText}>FarmAI</Text>
+        </View>
+        <View style={styles.headerBtn} />
       </View>
 
-      <ScrollView style={styles.scrollView}>
-        {/* AI Features Grid */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tính năng AI</Text>
-          <View style={styles.featuresGrid}>
-            {aiFeatures.map(renderFeatureCard)}
-          </View>
-        </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerOffset : 0}
+      >
+        {/* Chat List */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item, i) => `${item.id}-${i}`}
+          renderItem={({ item }) => <MessageBubble item={item} />}
+          ListHeaderComponent={ListHeader}
+          ListFooterComponent={isLoading ? <TypingDots /> : null}
+          contentContainerStyle={styles.listContent}
+          onContentSizeChange={scrollToBottom}
+          automaticallyAdjustKeyboardInsets
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        />
 
-        {/* Question Input */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Hỏi AI</Text>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.textInput}
-              value={question}
-              onChangeText={setQuestion}
-              placeholder="Nhập câu hỏi về trang trại của bạn..."
-              placeholderTextColor={COLORS.gray}
-              multiline
-              numberOfLines={3}
-            />
-            <TouchableOpacity
-              style={[styles.analyzeButton, isAnalyzing && styles.analyzeButtonDisabled]}
-              onPress={handleAnalyze}
-              disabled={isAnalyzing}
-            >
-              <Icon 
-                name={isAnalyzing ? "hourglass-empty" : "psychology"} 
-                size={20} 
-                color={COLORS.white} 
-              />
-              <Text style={styles.analyzeButtonText}>
-                {isAnalyzing ? 'Đang phân tích...' : 'Phân tích'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+        {/* Input bar */}
+        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          <TextInput
+            style={styles.textInput}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder="Hỏi FarmAI..."
+            placeholderTextColor="#999"
+            multiline
+            maxLength={500}
+            editable={!isLoading}
+          />
+          <TouchableOpacity
+            style={[styles.iconBtn, isRecording && styles.iconBtnRecording]}
+            onPress={handleMic}
+            disabled={isLoading}
+          >
+            <Ionicons name="mic" size={22} color={isRecording ? '#E53935' : '#666'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.sendBtn, (!inputText.trim() || isLoading) && styles.sendBtnDisabled]}
+            onPress={() => sendMessage(inputText)}
+            disabled={!inputText.trim() || isLoading}
+          >
+            <Ionicons name="arrow-forward" size={20} color={WHITE} />
+          </TouchableOpacity>
         </View>
-
-        {/* Analysis History */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Lịch sử phân tích</Text>
-          {analysisHistory.map(renderAnalysisCard)}
-        </View>
-      </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+  flex: { flex: 1 },
+  container: { flex: 1, backgroundColor: BG },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG },
+  loadingText: { marginTop: 12, color: '#555', fontSize: 14 },
+
+  // Header
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: COLORS.primary,
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.white,
-  },
-  headerButton: {
-    padding: 8,
-  },
-  backButton: {
-    padding: 8,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  section: {
-    padding: 16,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 16,
-  },
-  featuresGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
-  },
-  featureCard: {
-    width: '48%',
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
+  headerBtn: { width: 40, alignItems: 'center' },
+  headerTitle: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  headerTitleEmoji: { fontSize: 20, marginRight: 6 },
+  headerTitleText: { fontSize: 18, fontWeight: '700', color: WHITE },
+
+  // List
+  listContent: { paddingVertical: 12, paddingHorizontal: 10 },
+
+  // Quick chips
+  chipsRow: { marginBottom: 8 },
+  chipsContent: { paddingHorizontal: 2, gap: 8, flexDirection: 'row' },
+  chip: {
+    backgroundColor: WHITE,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    elevation: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
   },
-  featureIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+  chipText: { fontSize: 13, color: PRIMARY, fontWeight: '500' },
+
+  // User bubble
+  userRow: { alignItems: 'flex-end', marginBottom: 10, marginLeft: 60 },
+  userBubble: {
+    backgroundColor: PRIMARY,
+    borderRadius: 16,
+    borderBottomRightRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '100%',
+  },
+  userText: { color: WHITE, fontSize: 15, lineHeight: 21 },
+  timestampRight: { fontSize: 11, color: '#999', marginTop: 4 },
+
+  // Assistant bubble
+  assistantRow: { flexDirection: 'row', marginBottom: 10, marginRight: 60, alignItems: 'flex-end' },
+  assistantColumn: { flex: 1 },
+  avatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: SECONDARY,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginRight: 8,
+    flexShrink: 0,
   },
-  featureTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  featureDescription: {
-    fontSize: 12,
-    color: COLORS.gray,
-    textAlign: 'center',
-    lineHeight: 16,
-  },
-  inputContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  textInput: {
+  avatarEmoji: { fontSize: 16 },
+  assistantBubble: {
+    backgroundColor: WHITE,
+    borderRadius: 16,
+    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    fontSize: 16,
-    color: COLORS.text,
-    marginBottom: 12,
-    minHeight: 80,
-    textAlignVertical: 'top',
   },
-  analyzeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
+  assistantText: { color: '#222', fontSize: 15, lineHeight: 21 },
+  timestampLeft: { fontSize: 11, color: '#999', marginTop: 4, marginLeft: 2 },
+
+  // Typing
+  typingContainer: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, marginRight: 60 },
+  typingBubble: {
+    backgroundColor: WHITE,
+    borderRadius: 16,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 8,
-  },
-  analyzeButtonDisabled: {
-    backgroundColor: COLORS.gray,
-  },
-  analyzeButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  analysisCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  analysisHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    gap: 5,
+    alignItems: 'center',
   },
-  analysisMeta: {
+  typingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: SECONDARY },
+
+  // Input bar
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: WHITE,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+  },
+  textInput: {
     flex: 1,
-    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
+    fontSize: 15,
+    color: '#222',
+    maxHeight: 110,
+    backgroundColor: '#FAFAFA',
+    marginRight: 6,
   },
-  analysisQuestion: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 4,
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    backgroundColor: '#F0F0F0',
   },
-  analysisTime: {
-    fontSize: 12,
-    color: COLORS.gray,
+  iconBtnRecording: { backgroundColor: '#FFEBEE' },
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: PRIMARY,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  analysisType: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  analysisTypeText: {
-    fontSize: 10,
-    color: COLORS.white,
-    fontWeight: '600',
-  },
-  analysisAnswer: {
-    fontSize: 14,
-    color: COLORS.text,
-    lineHeight: 20,
-  },
+  sendBtnDisabled: { backgroundColor: '#BDBDBD' },
 });
 
 export default FarmAIScreen;

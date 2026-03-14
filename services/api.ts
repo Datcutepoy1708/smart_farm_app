@@ -101,8 +101,8 @@ export const noteApi = {
 
 // FarmAI APIs
 export const farmAiApi = {
-  getChatHistory: (barnId: number) => api.get(`/farm-ai/history/${barnId}`),
-  sendMessage: (data: any) => api.post('/farm-ai/chat', data),
+  getChatHistory: (barnId: number, limit: number = 20) => api.get(`/farm-ai/history?barn_id=${barnId}&limit=${limit}`),
+  sendMessage: (data: { barnId: number; message: string }) => api.post('/farm-ai/chat', data),
 };
 
 export default api;

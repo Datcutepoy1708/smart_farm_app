@@ -98,7 +98,7 @@ const BottomTabNavigator: React.FC = () => {
         name="Dashboard"
         component={DashboardScreen}
         options={{
-          title: 'Dashboard',
+          title: 'Trang chủ',
         }}
       />
       <Tab.Screen
