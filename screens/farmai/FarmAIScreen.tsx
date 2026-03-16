@@ -258,13 +258,14 @@ const FarmAIScreen: React.FC = () => {
   // ── Quick action ─────────────────────────────────────────────────────────────
   const handleQuickAction = (action: string) => sendMessage(action);
 
-  // ── Header component (quick action chips) ───────────────────────────────────
-  const ListHeader = (
+  // ── Quick action chips (above input bar) ────────────────────────────────────
+  const QuickActionsBar = (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={styles.chipsRow}
       contentContainerStyle={styles.chipsContent}
+      keyboardShouldPersistTaps="handled"
     >
       {QUICK_ACTIONS.map((action) => (
         <TouchableOpacity
@@ -318,7 +319,6 @@ const FarmAIScreen: React.FC = () => {
           data={messages}
           keyExtractor={(item, i) => `${item.id}-${i}`}
           renderItem={({ item }) => <MessageBubble item={item} />}
-          ListHeaderComponent={ListHeader}
           ListFooterComponent={isLoading ? <TypingDots /> : null}
           contentContainerStyle={styles.listContent}
           onContentSizeChange={scrollToBottom}
@@ -326,6 +326,9 @@ const FarmAIScreen: React.FC = () => {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         />
+
+        {/* Quick Actions above input */}
+        {QuickActionsBar}
 
         {/* Input bar */}
         <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
@@ -382,13 +385,13 @@ const styles = StyleSheet.create({
   listContent: { paddingVertical: 12, paddingHorizontal: 10 },
 
   // Quick chips
-  chipsRow: { marginBottom: 8 },
-  chipsContent: { paddingHorizontal: 2, gap: 8, flexDirection: 'row' },
+  chipsRow: { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: '#F0F0F0', maxHeight: 48 },
+  chipsContent: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, flexDirection: 'row', alignItems: 'center' },
   chip: {
     backgroundColor: WHITE,
     borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderWidth: 1,
     borderColor: '#C8E6C9',
     elevation: 1,
@@ -397,7 +400,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 2,
   },
-  chipText: { fontSize: 13, color: PRIMARY, fontWeight: '500' },
+  chipText: { fontSize: 12, color: PRIMARY, fontWeight: '500' },
 
   // User bubble
   userRow: { alignItems: 'flex-end', marginBottom: 10, marginLeft: 60 },
