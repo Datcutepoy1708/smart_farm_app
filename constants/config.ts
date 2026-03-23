@@ -35,8 +35,8 @@ export const COLORS = {
   lightGray: '#F0F0F0',
 } as const;
 
-export const API_URL = 'http://localhost:3000/api';
-export const SOCKET_URL = 'http://localhost:3000';
+export const API_URL = 'http://192.168.0.106:3000/api';
+export const SOCKET_URL = 'http://192.168.0.106:3000';
 
 export const MQTT_TOPICS = {
   getSensorsTopic: (barnId: number): string => `farm/barn${barnId}/sensors`,

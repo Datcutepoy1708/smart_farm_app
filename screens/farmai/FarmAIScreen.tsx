@@ -385,22 +385,23 @@ const styles = StyleSheet.create({
   listContent: { paddingVertical: 12, paddingHorizontal: 10 },
 
   // Quick chips
-  chipsRow: { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: '#F0F0F0', maxHeight: 48 },
+  chipsRow: { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: '#F0F0F0', height: 60 },
   chipsContent: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, flexDirection: 'row', alignItems: 'center' },
   chip: {
     backgroundColor: WHITE,
     borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: '#C8E6C9',
     elevation: 1,
+    flexShrink: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 2,
   },
-  chipText: { fontSize: 12, color: PRIMARY, fontWeight: '500' },
+  chipText: { fontSize: 13, color: PRIMARY, fontWeight: '500' },
 
   // User bubble
   userRow: { alignItems: 'flex-end', marginBottom: 10, marginLeft: 60 },

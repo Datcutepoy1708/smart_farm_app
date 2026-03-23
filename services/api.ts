@@ -97,6 +97,7 @@ export const noteApi = {
   getAll: () => api.get('/notes'),
   create: (data: any) => api.post('/notes', data),
   update: (id: number, data: any) => api.put(`/notes/${id}`, data),
+  remove: (id: number) => api.delete(`/notes/${id}`),
 };
 
 // FarmAI APIs
