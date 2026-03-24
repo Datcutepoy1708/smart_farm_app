@@ -17,11 +17,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import Voice, {
-  SpeechResultsEvent,
-  SpeechErrorEvent,
-} from '@react-native-voice/voice';
 import { farmAiApi } from '../../services/api';
+import { Alert } from 'react-native';
 
 // ─── Colors ──────────────────────────────────────────────────────────────────
 const PRIMARY = '#2D6A2D';
@@ -161,31 +158,12 @@ const FarmAIScreen: React.FC = () => {
   const [isFetchingHistory, setIsFetchingHistory] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
 
-  // ── Voice setup ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    Voice.onSpeechResults = (e: SpeechResultsEvent) => {
-      const result = e.value?.[0];
-      if (result) setInputText(result);
-      setIsRecording(false);
-    };
-    Voice.onSpeechError = (_e: SpeechErrorEvent) => setIsRecording(false);
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners).catch(() => null);
-    };
-  }, []);
-
+  // ── Voice setup (Disabled for Expo Go compatibility) ──────────────────────
   const handleMic = async () => {
-    if (isRecording) {
-      await Voice.stop();
-      setIsRecording(false);
-    } else {
-      try {
-        setIsRecording(true);
-        await Voice.start('vi-VN');
-      } catch {
-        setIsRecording(false);
-      }
-    }
+    Alert.alert(
+      'Tính năng không khả dụng',
+      'Tính năng nhận diện giọng nói yêu cầu quyền truy cập Native (Microphone) không có sẵn trên bản Expo Go. Vui lòng sử dụng Android APK hoặc kết nối Expo Dev Client để trải nghiệm.'
+    );
   };
 
   // ── Fetch history ────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ import {
   ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from '@expo/vector-icons/MaterialIcons';
 import { useAuth } from '../../store/authStore';
 import { COLORS } from '../../constants/config';
 import { authService } from '../../services/authService';
