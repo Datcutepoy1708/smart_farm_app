@@ -9,7 +9,7 @@ const getBaseUrl = () => {
     return process.env.EXPO_PUBLIC_ANDROID_API_URL;
   }
   
-  return 'http://192.168.0.106:3000'; // Your IP as default
+  return 'https://smartfarmbackend-production.up.railway.app/api'; // Production default
 };
 
 export const API_CONFIG = {
@@ -18,11 +18,8 @@ export const API_CONFIG = {
   
   // Alternative development URLs (try these if main URL doesn't work)
   FALLBACK_URLS: [
-    getBaseUrl(),                    // Your IP from env or default
-    'http://192.168.0.106:3000',   // Your IP address
-    'http://10.0.2.2:3000',         // Android Emulator
-    'http://localhost:3000',           // Local development
-    'http://127.0.0.1:3000',         // Alternative localhost
+    getBaseUrl(),                    
+    'https://smartfarmbackend-production.up.railway.app/api',
   ],
   
   // API Endpoints
