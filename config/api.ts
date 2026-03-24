@@ -49,7 +49,7 @@ export const getApiUrl = async (): Promise<string> => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    const response = await fetch(`${baseUrl}/api/auth/test`, {
+    const response = await fetch(`${baseUrl}/auth/test`, {
       method: 'GET',
       signal: controller.signal,
     });
@@ -66,7 +66,7 @@ export const getApiUrl = async (): Promise<string> => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       
-      const response = await fetch(`${fallbackUrl}/api/auth/test`, {
+      const response = await fetch(`${fallbackUrl}/auth/test`, {
         method: 'GET',
         signal: controller.signal,
       });

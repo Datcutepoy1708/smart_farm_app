@@ -117,7 +117,7 @@ class AuthService {
     try {
       console.log('Login request:', { email: credentials.email });
       
-      const data = await this.makeRequest('/api/auth/login', {
+      const data = await this.makeRequest('/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
@@ -139,7 +139,7 @@ class AuthService {
     try {
       console.log('Register request:', { email: userData.email, fullName: userData.fullName });
       
-      const data = await this.makeRequest('/api/auth/register', {
+      const data = await this.makeRequest('/auth/register', {
         method: 'POST',
         body: JSON.stringify(userData),
       });
@@ -159,7 +159,7 @@ class AuthService {
 
   async getMe(token: string): Promise<any> {
     try {
-      const data = await this.makeRequest('/api/auth/me', {
+      const data = await this.makeRequest('/auth/me', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -176,7 +176,7 @@ class AuthService {
   // Test connection to server
   async testConnection(): Promise<boolean> {
     try {
-      await this.makeRequest('/api/auth/test', { method: 'GET' });
+      await this.makeRequest('/auth/test', { method: 'GET' });
       return true;
     } catch (error) {
       console.error('Connection test failed:', error);
@@ -193,7 +193,7 @@ class AuthService {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
         
-        const response = await fetch(`${url}/api/auth/test`, {
+        const response = await fetch(`${url}/auth/test`, {
           method: 'GET',
           signal: controller.signal,
         });
