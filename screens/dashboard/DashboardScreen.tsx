@@ -2,14 +2,20 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../store/authStore';
 import { COLORS } from '../../constants/config';
 
 const DashboardScreen = () => {
   const { user, logout } = useAuth();
+  const navigation = useNavigation();
 
   const handleLogout = () => {
     logout();
+  };
+
+  const goToScheduleNote = () => {
+    (navigation as any).navigate('ScheduleNote');
   };
 
   return (
@@ -54,9 +60,9 @@ const DashboardScreen = () => {
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
           <View style={styles.actionsContainer}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Icon name="add" size={24} color={COLORS.white} />
-              <Text style={styles.actionText}>Thêm chuồng</Text>
+            <TouchableOpacity style={styles.actionButton} onPress={goToScheduleNote}>
+              <Icon name="event-note" size={24} color={COLORS.white} />
+              <Text style={styles.actionText}>Lịch GC</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton}>
               <Icon name="camera-alt" size={24} color={COLORS.white} />

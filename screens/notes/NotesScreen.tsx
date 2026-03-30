@@ -50,6 +50,16 @@ const formatDate = (iso: string) => {
   }
 };
 
+const formatDateTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const dd   = date.getDate().toString().padStart(2, '0');
+  const mm   = (date.getMonth() + 1).toString().padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const hh   = date.getHours().toString().padStart(2, '0');
+  const min  = date.getMinutes().toString().padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+};
+
 const NotesScreen = () => {
   const navigation = useNavigation();
   const [notes, setNotes]       = useState<Note[]>([]);
@@ -129,6 +139,20 @@ const NotesScreen = () => {
         </View>
 
         <Text style={styles.noteContent} numberOfLines={3}>{item.content}</Text>
+
+        {item.reminderAt != null && (() => {
+          const isPast = new Date(item.reminderAt) < new Date();
+          return (
+            <View style={styles.reminderRow}>
+              <Text style={[styles.reminderIcon, isPast ? styles.reminderPast : styles.reminderFuture]}>
+                {isPast ? '✅' : '🕐'}
+              </Text>
+              <Text style={[styles.reminderText, isPast ? styles.reminderPast : styles.reminderFuture]}>
+                {formatDateTime(item.reminderAt)}
+              </Text>
+            </View>
+          );
+        })()}
 
         {item.barnId != null && (
           <View style={styles.barnTag}>
@@ -297,6 +321,11 @@ const styles = StyleSheet.create({
   noteContent:       { fontSize: 14, color: COLORS.text, lineHeight: 20, marginBottom: 10 },
   barnTag:           { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.background, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
   barnText:          { fontSize: 11, color: COLORS.primary, marginLeft: 4, fontWeight: '500' },
+  reminderRow:       { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  reminderIcon:      { fontSize: 13, marginRight: 4 },
+  reminderText:      { fontSize: 12, fontWeight: '500' },
+  reminderFuture:    { color: '#FF9800' },
+  reminderPast:      { color: '#4CAF50' },
   noteDropdown:      { position: 'absolute', top: 40, right: 0, backgroundColor: COLORS.white, borderRadius: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4, zIndex: 100 },
   dropdownItem:      { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   deleteItem:        { backgroundColor: '#FFF5F5' },

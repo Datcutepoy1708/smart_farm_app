@@ -394,9 +394,6 @@ export default function ScheduleScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Lịch tự động</Text>
         <TouchableOpacity style={styles.headerIcon} onPress={fetchData}>
           <Ionicons name="refresh" size={24} color="#000" />

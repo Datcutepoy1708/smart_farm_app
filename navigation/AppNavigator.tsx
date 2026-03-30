@@ -6,11 +6,12 @@ import { useAuth } from '../store/authStore';
 import { COLORS } from '../constants/config';
 import DrawerNavigator from './DrawerNavigator';
 
-import LoginScreen from '../screens/auth/LoginScreen';
-import RegisterScreen from '../screens/auth/RegisterScreen';
-import CreateNoteScreen from '../screens/notes/CreateNoteScreen';
-import UpdateNoteScreen from '../screens/notes/UpdateNoteScreen';
-import SplashScreen from '../screens/splash/SplashScreen';
+import LoginScreen        from '../screens/auth/LoginScreen';
+import RegisterScreen     from '../screens/auth/RegisterScreen';
+import CreateNoteScreen   from '../screens/notes/CreateNoteScreen';
+import UpdateNoteScreen   from '../screens/notes/UpdateNoteScreen';
+import ScheduleNoteScreen from '../screens/notes/ScheduleNoteScreen';
+import SplashScreen       from '../screens/splash/SplashScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -77,11 +78,14 @@ const AppNavigator = () => {
                 title: 'Chỉnh sửa ghi chú',
                 presentation: 'modal',
                 headerShown: false,
-                headerStyle: {
-                  backgroundColor: COLORS.primary,
-                },
+                headerStyle: { backgroundColor: COLORS.primary },
                 headerTintColor: COLORS.white,
               }}
+            />
+            <Stack.Screen
+              name="ScheduleNote"
+              component={ScheduleNoteScreen}
+              options={{ headerShown: false }}
             />
           </>
         ) : (

@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
   Alert as RNAlert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
@@ -30,6 +32,15 @@ interface CreateNoteForm {
   barnId: number | null;
 }
 
+const formatDateTime = (date: Date): string => {
+  const dd  = date.getDate().toString().padStart(2, '0');
+  const mm  = (date.getMonth() + 1).toString().padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const hh  = date.getHours().toString().padStart(2, '0');
+  const min = date.getMinutes().toString().padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+};
+
 const TAG_OPTIONS: { key: NoteTag; label: string; icon: string; color: string }[] = [
   { key: 'routine', label: 'Hàng ngày', icon: 'today',            color: '#4CAF50' },
   { key: 'medical', label: 'Y tế',      icon: 'medical-services', color: '#F44336' },
@@ -42,6 +53,9 @@ const CreateNoteScreen = () => {
   const [saving, setSaving]   = useState(false);
   const [barns, setBarns]     = useState<Barn[]>([]);
   const [loadingBarns, setLoadingBarns] = useState(true);
+  const [reminderAt, setReminderAt]     = useState<Date | null>(null);
+  const [showPicker, setShowPicker]     = useState<'date' | 'time' | null>(null);
+  const [tempDate, setTempDate]         = useState<Date>(new Date());
 
   const [form, setForm] = useState<CreateNoteForm>({
     title:   '',
@@ -79,10 +93,11 @@ const CreateNoteScreen = () => {
     try {
       setSaving(true);
       const body = {
-        title:   form.title.trim() || undefined,
-        content: form.content.trim(),
-        tag:     form.tag,
-        barnId:  form.barnId ?? undefined,
+        title:      form.title.trim() || undefined,
+        content:    form.content.trim(),
+        tag:        form.tag,
+        barnId:     form.barnId ?? undefined,
+        reminderAt: reminderAt ? reminderAt.toISOString() : null,
       };
       const res = await noteApi.create(body);
       const result = res.data as { success: boolean };
@@ -93,11 +108,31 @@ const CreateNoteScreen = () => {
       } else {
         throw new Error('API trả về lỗi');
       }
-    } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.message ?? 'Lỗi không xác định';
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi không xác định';
       RNAlert.alert('Lỗi', `Không thể tạo ghi chú: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onPickerChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (event.type === 'dismissed') {
+      setShowPicker(null);
+      return;
+    }
+    const picked = selected ?? tempDate;
+    if (showPicker === 'date') {
+      setTempDate(picked);
+      if (Platform.OS === 'android') setShowPicker('time');
+      else setShowPicker('time');
+    } else {
+      const merged = new Date(
+        tempDate.getFullYear(), tempDate.getMonth(), tempDate.getDate(),
+        picked.getHours(), picked.getMinutes(),
+      );
+      setReminderAt(merged);
+      setShowPicker(null);
     }
   };
 
@@ -201,6 +236,44 @@ const CreateNoteScreen = () => {
             )}
           </View>
 
+          {/* Ngày thực hiện */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Ngày thực hiện <Text style={styles.optional}>(tuỳ chọn)</Text></Text>
+            <View style={styles.reminderRow}>
+              <TouchableOpacity
+                style={styles.reminderButton}
+                onPress={() => {
+                  setTempDate(reminderAt ?? new Date());
+                  setShowPicker('date');
+                }}
+              >
+                <Icon name="event" size={18} color={COLORS.primary} />
+                <Text style={styles.reminderButtonText}>
+                  {reminderAt ? formatDateTime(reminderAt) : 'Chọn ngày giờ...'}
+                </Text>
+              </TouchableOpacity>
+              {reminderAt != null && (
+                <TouchableOpacity
+                  style={styles.reminderClear}
+                  onPress={() => setReminderAt(null)}
+                >
+                  <Icon name="close" size={18} color={COLORS.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* DateTimePicker modal */}
+          {showPicker != null && (
+            <DateTimePicker
+              value={tempDate}
+              mode={showPicker}
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              minimumDate={new Date()}
+              onChange={onPickerChange}
+            />
+          )}
+
         </View>
       </ScrollView>
 
@@ -256,6 +329,11 @@ const styles = StyleSheet.create({
   barnOptionText:     { fontSize: 13, color: COLORS.gray, fontWeight: '500' },
   barnOptionTextActive:{ color: COLORS.white },
   noBarnText:         { fontSize: 13, color: COLORS.gray, fontStyle: 'italic', marginTop: 4 },
+  optional:           { fontWeight: '400', color: COLORS.gray, fontSize: 13 },
+  reminderRow:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reminderButton:     { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: COLORS.white },
+  reminderButtonText: { fontSize: 14, color: COLORS.text, flex: 1 },
+  reminderClear:      { padding: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.danger, backgroundColor: '#FFF5F5' },
   footer:             { flexDirection: 'row', padding: 16, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: '#E0E0E0', gap: 12 },
   actionButton:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12 },
   cancelButton:       { backgroundColor: COLORS.background, borderWidth: 1, borderColor: '#E0E0E0' },
