@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator, BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { DrawerNavigationProp } from '@react-navigation/drawer';
 import { COLORS } from '../constants/config';
@@ -44,6 +45,7 @@ const MenuPlaceholderScreen = () => <View />;
 // ─────────────────────────────────────────────────────────────────────────────
 const BottomTabNavigator: React.FC = () => {
   const unreadCount = useAlertStore((state) => state.unreadCount);
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -63,8 +65,8 @@ const BottomTabNavigator: React.FC = () => {
           backgroundColor: COLORS.white,
           borderTopWidth:  1,
           borderTopColor:  '#E0E0E0',
-          height:          65,
-          paddingBottom:   5,
+          height:          65 + (insets.bottom > 0 ? insets.bottom - 5 : 0),
+          paddingBottom:   insets.bottom > 0 ? insets.bottom : 5,
           paddingTop:      5,
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: '500' },

@@ -19,6 +19,7 @@ import SettingsScreen from '../screens/settings/SettingsScreen';
 import FarmAIScreen from '@/screens/farmai/FarmAIScreen';
 import NutritionScreen from '@/screens/nutrition/NutritionScreen';
 import OverviewScreen from '@/screens/overview/OverviewScreen';
+import CameraScreen from '../screens/camera/CameraScreen';
 
 export type DrawerParamList = {
   MainTabs: undefined;
@@ -34,8 +35,6 @@ export type DrawerParamList = {
 
 const Drawer = createDrawerNavigator<DrawerParamList>();
 
-const CameraScreen: React.FC = () => <PlaceholderScreen title="Camera / YOLO" />;
-
 interface MenuItem {
   id: string;
   title: string;
@@ -48,6 +47,12 @@ const DrawerContent: React.FC<DrawerContentComponentProps> = ({ navigation, stat
   const { user } = useAuth();
 
   const menuItems: MenuItem[] = [
+    {
+      id: 'home',
+      title: 'Trang chủ',
+      icon: 'home',
+      target: 'MainTabs',
+    },
     {
       id: 'overview',
       title: 'Tổng quan',
@@ -164,10 +169,9 @@ const DrawerNavigator: React.FC = () => {
           backgroundColor: COLORS.white,
         },
         drawerType: 'slide',
-        overlayColor: 'rgba(0, 0, 0, 0.4)',
         headerShown: false,
         swipeEnabled: true,
-        sceneContainerStyle: {
+        sceneStyle: {
           backgroundColor: COLORS.background,
         },
       }}

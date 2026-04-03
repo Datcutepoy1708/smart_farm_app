@@ -343,8 +343,8 @@ const FarmAIScreen: React.FC = () => {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? headerOffset : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Chat List */}
         <FlatList
@@ -364,7 +364,7 @@ const FarmAIScreen: React.FC = () => {
         {QuickActionsBar}
 
         {/* Input bar */}
-        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View style={[styles.inputBar, { paddingBottom: Platform.OS === 'ios' ? 0 : 8 }]}>
           <TextInput
             style={styles.textInput}
             value={inputText}
@@ -415,16 +415,16 @@ const styles = StyleSheet.create({
   headerTitleText: { fontSize: 18, fontWeight: '700', color: WHITE },
 
   // List
-  listContent: { paddingVertical: 12, paddingHorizontal: 10 },
+  listContent: { paddingTop: 12, paddingBottom: 16, paddingHorizontal: 10 },
 
   // Quick chips
-  chipsRow: { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: '#F0F0F0', height: 60 },
-  chipsContent: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, flexDirection: 'row', alignItems: 'center' },
+  chipsRow: { backgroundColor: WHITE, borderTopWidth: 1, borderTopColor: '#F0F0F0', height: 48 },
+  chipsContent: { paddingHorizontal: 10, paddingVertical: 6, gap: 8, flexDirection: 'row', alignItems: 'center' },
   chip: {
     backgroundColor: WHITE,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#C8E6C9',
     elevation: 1,
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 2,
   },
-  chipText: { fontSize: 13, color: PRIMARY, fontWeight: '500' },
+  chipText: { fontSize: 11, color: PRIMARY, fontWeight: '500' },
 
   // User bubble
   userRow: { alignItems: 'flex-end', marginBottom: 10, marginLeft: 60 },

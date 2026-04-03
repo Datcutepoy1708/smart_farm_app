@@ -16,14 +16,21 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Cho phép Smart Farm nhận dạng giọng nói để hỗ trợ nông dân",
+        "NSMicrophoneUsageDescription": "Cho phép Smart Farm sử dụng microphone để nhập ghi chú bằng giọng nói"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#2D6A2D"
       },
-      "package": "com.smartfarm.app"
+      "package": "com.smartfarm.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -44,6 +51,11 @@
           "speechRecognitionPermission": "Cho phép Smart Farm nhận dạng giọng nói để hỗ trợ nông dân"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8683fb24-8c53-4c6e-a44f-2ee1882e49ce"
+      }
+    }
   }
 }
