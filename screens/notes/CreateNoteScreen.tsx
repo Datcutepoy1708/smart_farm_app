@@ -10,9 +10,14 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/MaterialIcons';
+import type { ComponentProps } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 import { barnApi, noteApi } from '../../services/api';
@@ -41,7 +46,9 @@ const formatDateTime = (date: Date): string => {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 };
 
-const TAG_OPTIONS: { key: NoteTag; label: string; icon: string; color: string }[] = [
+type MaterialIconName = ComponentProps<typeof Icon>['name'];
+
+const TAG_OPTIONS: { key: NoteTag; label: string; icon: MaterialIconName; color: string }[] = [
   { key: 'routine', label: 'Hàng ngày', icon: 'today',            color: '#4CAF50' },
   { key: 'medical', label: 'Y tế',      icon: 'medical-services', color: '#F44336' },
   { key: 'feeding', label: 'Cho ăn',    icon: 'restaurant',       color: '#2D6A2D' },
@@ -56,6 +63,7 @@ const CreateNoteScreen = () => {
   const [reminderAt, setReminderAt]     = useState<Date | null>(null);
   const [showPicker, setShowPicker]     = useState<'date' | 'time' | null>(null);
   const [tempDate, setTempDate]         = useState<Date>(new Date());
+  const [isRecording, setIsRecording]   = useState(false);
 
   const [form, setForm] = useState<CreateNoteForm>({
     title:   '',
@@ -63,6 +71,42 @@ const CreateNoteScreen = () => {
     tag:     'routine',
     barnId:  null,
   });
+
+  // Xin quyền microphone
+  useEffect(() => {
+    ExpoSpeechRecognitionModule.requestPermissionsAsync();
+  }, []);
+
+  // Lắng nghe kết quả nhận dạng giọng nói
+  useSpeechRecognitionEvent('result', (event) => {
+    const text = event.results[0]?.transcript ?? '';
+    if (text) {
+      setForm((prev) => ({ ...prev, content: (prev.content + ' ' + text).trimStart() }));
+    }
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsRecording(false);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    setIsRecording(false);
+    RNAlert.alert('Lỗi', 'Không nhận được giọng nói: ' + event.message);
+  });
+
+  const toggleVoiceInput = () => {
+    if (isRecording) {
+      ExpoSpeechRecognitionModule.stop();
+      setIsRecording(false);
+    } else {
+      setIsRecording(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: 'vi-VN',
+        interimResults: true,
+        continuous: false,
+      });
+    }
+  };
 
   // Load danh sách barn từ API
   useEffect(() => {
@@ -167,16 +211,33 @@ const CreateNoteScreen = () => {
             <Text style={styles.inputLabel}>
               Nội dung <Text style={styles.required}>*</Text>
             </Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              value={form.content}
-              onChangeText={(text) => setForm((prev) => ({ ...prev, content: text }))}
-              placeholder="Nhập nội dung ghi chú"
-              placeholderTextColor={COLORS.gray}
-              multiline
-              numberOfLines={6}
-              textAlignVertical="top"
-            />
+            <View style={styles.contentRow}>
+              <TextInput
+                style={[styles.textInput, styles.textArea, styles.contentInput]}
+                value={form.content}
+                onChangeText={(text) => setForm((prev) => ({ ...prev, content: text }))}
+                placeholder="Nhập nội dung ghi chú"
+                placeholderTextColor={COLORS.gray}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={[styles.micButton, isRecording && styles.micButtonActive]}
+                onPress={toggleVoiceInput}
+              >
+                <Icon
+                  name={isRecording ? 'mic' : 'mic-none'}
+                  size={24}
+                  color={isRecording ? '#FFFFFF' : '#2D6A2D'}
+                />
+              </TouchableOpacity>
+            </View>
+            {isRecording && (
+              <Text style={styles.recordingText}>
+                🔴 Đang nghe... nói và dừng lại khi xong
+              </Text>
+            )}
           </View>
 
           {/* Loại ghi chú */}
@@ -318,6 +379,11 @@ const styles = StyleSheet.create({
   required:           { color: COLORS.danger },
   textInput:          { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, color: COLORS.text, backgroundColor: COLORS.white },
   textArea:           { height: 130, textAlignVertical: 'top' },
+  contentRow:         { flexDirection: 'row', alignItems: 'flex-start' },
+  contentInput:       { flex: 1, marginRight: 8 },
+  micButton:          { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2D6A2D', marginTop: 0 },
+  micButtonActive:    { backgroundColor: '#F44336', borderColor: '#F44336' },
+  recordingText:      { color: '#F44336', fontSize: 12, marginTop: 6, fontWeight: '500' },
   tagGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tagOption:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: COLORS.white, borderWidth: 1, borderLeftWidth: 4, borderColor: '#E0E0E0', minWidth: '45%' },
   tagOptionActive:    {},

@@ -15,6 +15,7 @@ import Icon from '@expo/vector-icons/MaterialIcons';
 import { useAuth } from '../../store/authStore';
 import { COLORS } from '../../constants/config';
 import { authService } from '../../services/authService';
+import { registerForPushNotifications } from '../../services/notificationService';
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
@@ -35,6 +36,12 @@ const LoginScreen = () => {
       
       // Store token and user data
       login(response.data.token, response.data.user);
+
+      // Đăng ký push notification token
+      registerForPushNotifications().catch((e) =>
+        console.warn('Push notification registration failed:', e)
+      );
+
       Alert.alert('Thành công', 'Đăng nhập thành công!');
     } catch (error: any) {
       console.error('Login error:', error);

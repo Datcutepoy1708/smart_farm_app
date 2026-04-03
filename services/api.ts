@@ -106,4 +106,12 @@ export const farmAiApi = {
   sendMessage: (data: { barnId: number; message: string }) => api.post('/farm-ai/chat', data),
 };
 
+// Notification APIs
+export const notificationApi = {
+  registerToken: (token: string, deviceName: string) =>
+    api.post('/notifications/register-token', { token, deviceName }),
+  removeToken: (token: string) =>
+    api.delete(`/notifications/token/${encodeURIComponent(token)}`),
+};
+
 export default api;

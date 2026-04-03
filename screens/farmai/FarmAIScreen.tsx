@@ -19,6 +19,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { farmAiApi } from '../../services/api';
 import { Alert } from 'react-native';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 
 // ─── Colors ──────────────────────────────────────────────────────────────────
 const PRIMARY = '#2D6A2D';
@@ -158,12 +162,63 @@ const FarmAIScreen: React.FC = () => {
   const [isFetchingHistory, setIsFetchingHistory] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
 
-  // ── Voice setup (Disabled for Expo Go compatibility) ──────────────────────
-  const handleMic = async () => {
-    Alert.alert(
-      'Tính năng không khả dụng',
-      'Tính năng nhận diện giọng nói yêu cầu quyền truy cập Native (Microphone) không có sẵn trên bản Expo Go. Vui lòng sử dụng Android APK hoặc kết nối Expo Dev Client để trải nghiệm.'
-    );
+  // ── Pulse animation for mic button ───────────────────────────────────────
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.3, duration: 500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1,   duration: 500, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isRecording, pulseAnim]);
+
+  // ── Speech recognition permissions ───────────────────────────────────────
+  useEffect(() => {
+    ExpoSpeechRecognitionModule.requestPermissionsAsync();
+  }, []);
+
+  // ── Speech recognition events ─────────────────────────────────────────────
+  useSpeechRecognitionEvent('result', (event) => {
+    if (event.isFinal) {
+      const text = event.results[0]?.transcript ?? '';
+      setInputText(text);
+      if (text.trim()) {
+        sendMessage(text);
+      }
+    } else {
+      const interim = event.results[0]?.transcript ?? '';
+      setInputText(interim);
+    }
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsRecording(false);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    setIsRecording(false);
+    Alert.alert('Lỗi giọng nói', 'Không nhận được giọng nói: ' + event.message);
+  });
+
+  // ── Toggle mic ───────────────────────────────────────────────────────────
+  const handleMic = () => {
+    if (isRecording) {
+      ExpoSpeechRecognitionModule.stop();
+      setIsRecording(false);
+    } else {
+      setIsRecording(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: 'vi-VN',
+        interimResults: true,
+        continuous: false,
+      });
+    }
   };
 
   // ── Fetch history ────────────────────────────────────────────────────────────
