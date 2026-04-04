@@ -170,12 +170,17 @@ export default function CameraScreen() {
 
     // Mock socket event (Thay bằng socket thật)
     /*
-    socket.on('yolo:update', (data: any) => {
+    socket.on('yolo:update', (data: {
+      chickenCount: number;
+      isAbnormal: boolean;
+      abnormalCount: number;
+      recordedAt: string;
+    }) => {
       setLatestDetection(prev => prev ? {
         ...prev,
         chickenCount: data.chickenCount,
         isAbnormal: data.isAbnormal,
-        confidenceAvg: data.confidenceAvg,
+        abnormalCount: data.abnormalCount,
         recordedAt: data.recordedAt,
       } : null);
     });
@@ -203,24 +208,77 @@ export default function CameraScreen() {
     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
   );
 
+  // --- HELPER: Xác định trạng thái sức khỏe ---
+  type HealthStatus = 'healthy' | 'weak' | 'dead' | 'unknown';
+
+  const getHealthStatus = (detection: YoloDetection | null): HealthStatus => {
+    if (!detection) return 'unknown';
+    if (!detection.isAbnormal) return 'healthy';
+    if (detection.abnormalCount < 10) return 'weak';
+    return 'dead';
+  };
+
+  const healthConfig: Record<
+    HealthStatus,
+    { emoji: string; title: string; desc: string; bg: string; border: string; text: string }
+  > = {
+    healthy: {
+      emoji: '🟢',
+      title: 'ĐÀN GÀ KHỎE MẠNH',
+      desc: 'Không phát hiện bất thường',
+      bg: '#E8F5E9',
+      border: '#4CAF50',
+      text: '#2D6A2D',
+    },
+    weak: {
+      emoji: '🟡',
+      title: 'PHÁT HIỆN GÀ YẾU',
+      desc: 'Quan sát thêm, kiểm tra sức khỏe đàn gà',
+      bg: '#FFF3E0',
+      border: '#FF9800',
+      text: '#E65100',
+    },
+    dead: {
+      emoji: '🔴',
+      title: 'PHÁT HIỆN GÀ CHẾT',
+      desc: 'Kiểm tra ngay và xử lý!',
+      bg: '#FFEBEE',
+      border: '#F44336',
+      text: '#C62828',
+    },
+    unknown: {
+      emoji: '⚪',
+      title: 'CHƯA CÓ DỮ LIỆU',
+      desc: 'Camera chưa gửi kết quả',
+      bg: '#F5F5F5',
+      border: '#BDBDBD',
+      text: '#757575',
+    },
+  };
+
+  const timeAgo = (isoString: string): string => {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Vừa xong';
+    if (diffMins < 60) return `${diffMins} phút trước`;
+    const timeStr = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    return `Hôm nay ${timeStr}`;
+  };
+
   // --- RENDER LIVE TAB ---
   const renderLiveTab = () => {
-    if (!latestDetection) return null;
-
-    const behaviors = latestDetection.behaviors;
-    const behaviorItems = [
-      { label: 'Di chuyển bình thường', ok: behaviors?.moving !== false, icon: '🚶' },
-      { label: 'Phân bổ đều chuồng', ok: !behaviors?.clustering, icon: '📍' },
-      { label: 'Đang ăn uống', ok: behaviors?.eating !== false, icon: '🍽️' },
-    ];
-
-    const timeString = new Date(latestDetection.recordedAt).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const status = getHealthStatus(latestDetection);
+    const config = healthConfig[status];
 
     return (
-      <ScrollView style={styles.tabContent} refreshControl={sharedRefreshControl}>
+      <ScrollView
+        style={styles.tabContent}
+        contentContainerStyle={styles.liveTabContent}
+        refreshControl={sharedRefreshControl}
+      >
+        {/* Header */}
         <View style={styles.cameraHeader}>
           <Text style={styles.cameraTitle}>📷 Camera AI</Text>
           <View style={styles.onlineBadge}>
@@ -229,22 +287,17 @@ export default function CameraScreen() {
           </View>
         </View>
 
+        {/* Camera feed */}
         <View style={styles.cameraContainer}>
           <Image source={{ uri: STREAM_URL }} style={styles.cameraImage} resizeMode="cover" />
           <View style={styles.cameraOverlay}>
             <View style={styles.overlayTop}>
               <View style={styles.infoPill}>
-                <Text style={styles.overlayText}>🐔 {latestDetection.chickenCount} con</Text>
-              </View>
-              <View style={styles.infoPill}>
-                <Text style={styles.overlayText}>{latestDetection.confidenceAvg?.toFixed(1)}%</Text>
+                <Text style={styles.overlayText}>
+                  🐔 {latestDetection?.chickenCount ?? '--'} con
+                </Text>
               </View>
             </View>
-            {latestDetection.isAbnormal && (
-              <View style={styles.abnormalBanner}>
-                <Text style={styles.abnormalText}>⚠️ PHÁT HIỆN BẤT THƯỜNG</Text>
-              </View>
-            )}
           </View>
           <View style={styles.liveBadge}>
             <View style={styles.liveDot} />
@@ -252,38 +305,38 @@ export default function CameraScreen() {
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statBoxIcon}>🐔</Text>
-            <Text style={styles.statBoxValue}>{latestDetection.chickenCount}</Text>
-            <Text style={styles.statBoxLabel}>Gà</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statBoxIcon}>⚠️</Text>
-            <Text style={[styles.statBoxValue, { color: latestDetection.abnormalCount > 0 ? COLORS.danger : COLORS.darkGray }]}>
-              {latestDetection.abnormalCount}
-            </Text>
-            <Text style={styles.statBoxLabel}>B.Thường</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statBoxIcon}>📊</Text>
-            <Text style={styles.statBoxValue}>{latestDetection.confidenceAvg}%</Text>
-            <Text style={styles.statBoxLabel}>Conf</Text>
-          </View>
+        {/* Tổng số gà */}
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>🐔 Tổng số gà:</Text>
+          <Text style={styles.totalCount}>
+            {latestDetection?.chickenCount ?? '--'} con
+          </Text>
         </View>
 
-        <View style={styles.behaviorCard}>
-          <Text style={styles.behaviorTitle}>TRẠNG THÁI HÀNH VI</Text>
-          {behaviorItems.map((item, index) => (
-            <View key={index} style={styles.behaviorRow}>
-              <Text style={styles.behaviorRowIcon}>{item.ok ? '✅' : '❌'}</Text>
-              <Text style={[styles.behaviorRowText, !item.ok && styles.behaviorRowTextError]}>
-                {item.label}
-              </Text>
-            </View>
-          ))}
-          <Text style={styles.updateTime}>🕐 Cập nhật: Hôm nay {timeString}</Text>
+        {/* Section title */}
+        <Text style={styles.healthSectionTitle}>TÌNH TRẠNG SỨC KHỎE ĐÀN GÀ</Text>
+
+        {/* Health status card */}
+        <View
+          style={[
+            styles.healthStatusCard,
+            {
+              backgroundColor: config.bg,
+              borderColor: config.border,
+              borderWidth: 2,
+            },
+          ]}
+        >
+          <Text style={styles.healthEmoji}>{config.emoji}</Text>
+          <Text style={[styles.healthTitle, { color: config.text }]}>{config.title}</Text>
+          <Text style={[styles.healthDesc, { color: config.text }]}>{config.desc}</Text>
         </View>
+
+        {/* Thời gian cập nhật */}
+        <Text style={styles.updateTime}>
+          🕐 Cập nhật:{' '}
+          {latestDetection ? timeAgo(latestDetection.recordedAt) : 'Chưa có dữ liệu'}
+        </Text>
       </ScrollView>
     );
   };
@@ -293,7 +346,7 @@ export default function CameraScreen() {
     if (!stats) return null;
 
     return (
-      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} refreshControl={sharedRefreshControl}>
+      <ScrollView style={styles.tabContent} contentContainerStyle={styles.analyticsHistoryContent} showsVerticalScrollIndicator={false} refreshControl={sharedRefreshControl}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
           {[6, 12, 24, 168].map(h => (
             <TouchableOpacity
@@ -418,7 +471,7 @@ export default function CameraScreen() {
     });
 
     return (
-      <View style={styles.tabContent}>
+      <View style={[styles.tabContent, styles.analyticsHistoryContent]}>
         <View style={styles.historyFilterRow}>
           {[
             { id: 'ALL', label: 'Tất cả' },
@@ -479,7 +532,7 @@ export default function CameraScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* HEADER TABS */}
       <View style={styles.tabsContainer}>
         {[
@@ -597,6 +650,11 @@ const styles = StyleSheet.create({
   },
   tabContent: {
     flex: 1,
+  },
+  liveTabContent: {
+    paddingBottom: 24,
+  },
+  analyticsHistoryContent: {
     padding: 16,
   },
   
@@ -655,7 +713,7 @@ const styles = StyleSheet.create({
   },
   overlayTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   infoPill: {
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -667,16 +725,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: 'bold',
     fontSize: 14,
-  },
-  abnormalBanner: {
-    backgroundColor: 'rgba(244, 67, 54, 0.9)', // Danger
-    padding: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  abnormalText: {
-    color: COLORS.white,
-    fontWeight: 'bold',
   },
   liveBadge: {
     position: 'absolute',
@@ -701,75 +749,71 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
-  statsRow: {
+  // Tổng số gà row
+  totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    padding: 12,
-    borderRadius: 12,
     alignItems: 'center',
-    marginHorizontal: 4,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-  },
-  statBoxIcon: {
-    fontSize: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.white,
+    marginHorizontal: 16,
     marginBottom: 4,
-  },
-  statBoxValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.darkGray,
-  },
-  statBoxLabel: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginTop: 2,
-  },
-  behaviorCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 8,
     elevation: 1,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
   },
-  behaviorTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: COLORS.gray,
-    marginBottom: 12,
-  },
-  behaviorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  behaviorRowIcon: {
-    marginRight: 8,
-    fontSize: 16,
-  },
-  behaviorRowText: {
+  totalLabel: {
     fontSize: 15,
     color: COLORS.darkGray,
   },
-  behaviorRowTextError: {
-    color: COLORS.danger,
-    fontWeight: '600',
+  totalCount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+
+  // Health status section
+  healthSectionTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: COLORS.gray,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  healthStatusCard: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  healthEmoji: {
+    fontSize: 40,
+    marginBottom: 4,
+  },
+  healthTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  healthDesc: {
+    fontSize: 13,
+    textAlign: 'center',
+    opacity: 0.8,
   },
   updateTime: {
-    fontSize: 12,
+    textAlign: 'center',
     color: COLORS.gray,
+    fontSize: 12,
     marginTop: 8,
+    marginBottom: 4,
     fontStyle: 'italic',
   },
 
