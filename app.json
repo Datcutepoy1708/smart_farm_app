@@ -50,6 +50,14 @@
           "microphonePermission": "Cho phép Smart Farm sử dụng microphone để nhập ghi chú bằng giọng nói",
           "speechRecognitionPermission": "Cho phép Smart Farm nhận dạng giọng nói để hỗ trợ nông dân"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
     ],
     "extra": {

@@ -269,9 +269,17 @@ export default function CameraScreen() {
         <View style={styles.cameraContainer}>
           {serverOnline && !cameraError ? (
             <WebView
-              source={{ uri: STREAM_URL }}
+              source={{ 
+                html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:cover;" onerror="window.ReactNativeWebView.postMessage('error');" /></body></html>`,
+                baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
+              }}
+              onMessage={(event) => {
+                if (event.nativeEvent.data === 'error') {
+                  setCameraError(true);
+                }
+              }}
               style={styles.cameraImage}
-              javaScriptEnabled={false}
+              javaScriptEnabled={true}
               onError={() => setCameraError(true)}
               onHttpError={() => setCameraError(true)}
               scrollEnabled={false}
