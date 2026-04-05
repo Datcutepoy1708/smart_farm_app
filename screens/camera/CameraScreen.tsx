@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 // Giả định thư viện api và socket. Trong thực tế lấy từ config của project
@@ -71,55 +72,7 @@ export interface DailyData {
   abnormalRate: number;
 }
 
-// -- MOCK DATA --
-const MOCK_LATEST: YoloDetection = {
-  id: 1,
-  barnId: 1,
-  chickenCount: 498,
-  abnormalCount: 0,
-  behaviors: { moving: true, clustering: false, eating: true },
-  confidenceAvg: 94.5,
-  imagePath: null,
-  isAbnormal: false,
-  recordedAt: new Date().toISOString(),
-};
 
-const MOCK_STATS: DetectionStats = {
-  avgChickenCount: 497,
-  totalDetections: 13,
-  abnormalRate: 23,
-  maxAbnormalCount: 8,
-  hourlyData: [
-    { hour: '06:00', chickenCount: 498, isAbnormal: false },
-    { hour: '08:00', chickenCount: 495, isAbnormal: true },
-    { hour: '10:00', chickenCount: 498, isAbnormal: false },
-    { hour: '12:00', chickenCount: 497, isAbnormal: false },
-  ],
-};
-
-const MOCK_DAILY: DailyData[] = [
-  { date: '2026-03-28', avgCount: 498, abnormalCount: 0, abnormalRate: 0 },
-  { date: '2026-03-29', avgCount: 497, abnormalCount: 2, abnormalRate: 5 },
-  { date: '2026-03-30', avgCount: 495, abnormalCount: 8, abnormalRate: 15 },
-  { date: '2026-03-31', avgCount: 498, abnormalCount: 0, abnormalRate: 0 },
-  { date: '2026-04-01', avgCount: 496, abnormalCount: 4, abnormalRate: 10 },
-  { date: '2026-04-02', avgCount: 498, abnormalCount: 0, abnormalRate: 0 },
-  { date: '2026-04-03', avgCount: 497, abnormalCount: 8, abnormalRate: 23 },
-];
-
-const MOCK_HISTORY: YoloDetection[] = [
-  MOCK_LATEST,
-  {
-    ...MOCK_LATEST,
-    id: 2,
-    chickenCount: 495,
-    abnormalCount: 8,
-    isAbnormal: true,
-    behaviors: { moving: false, clustering: true, eating: false, reason: 'Nhiệt độ cao' },
-    confidenceAvg: 91.2,
-    recordedAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-];
 
 type TabType = 'LIVE' | 'ANALYTICS' | 'HISTORY';
 type HistoryFilter = 'ALL' | 'ABNORMAL' | 'NORMAL';
@@ -134,7 +87,7 @@ export default function CameraScreen() {
   const [stats, setStats] = useState<DetectionStats | null>(null);
   const [dailyData, setDailyData] = useState<DailyData[]>([]);
   const [history, setHistory] = useState<YoloDetection[]>([]);
-  
+
   // Analytics State
   const [analyticsHours, setAnalyticsHours] = useState<number>(24);
 
@@ -142,23 +95,48 @@ export default function CameraScreen() {
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('ALL');
   const [selectedDetection, setSelectedDetection] = useState<YoloDetection | null>(null);
 
-  const STREAM_URL = 'https://picsum.photos/seed/chickenfarm/400/300';
-  const serverOnline = true; // Mock
+  // -- IP Python server (cùng mạng WiFi với điện thoại) --
+  const PYTHON_SERVER_IP = '192.168.0.103'; // ← Thay đây nếu cần
+  const STREAM_URL = `http://${PYTHON_SERVER_IP}:5000/video`;
+  const DETECT_URL = `http://${PYTHON_SERVER_IP}:5000/detect`;
+
+  const [serverOnline, setServerOnline] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<boolean>(false);
 
   const fetchData = async () => {
     try {
-      // Mock API calls (Thực tế gán gọi API)
-      // fetchLatest();
-      // fetchStats(analyticsHours);
-      // fetchHistory();
-      // fetchDailyData(7);
-      
-      setLatestDetection(MOCK_LATEST);
-      setStats(MOCK_STATS);
-      setHistory(MOCK_HISTORY);
-      setDailyData(MOCK_DAILY);
+      // Kiem tra server con song khong
+      const healthResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/health`, { signal: AbortSignal.timeout(3000) });
+      setServerOnline(healthResp.ok);
+
+      // Lay ket qua detection moi nhat
+      const detectResp = await fetch(DETECT_URL, { signal: AbortSignal.timeout(3000) });
+      if (detectResp.ok) {
+        const data = await detectResp.json();
+        setLatestDetection({
+          id: Date.now(),
+          barnId: 1,
+          chickenCount: data.total ?? 0,
+          abnormalCount: (data.sick ?? 0) + (data.dead ?? 0),
+          behaviors: null,
+          confidenceAvg: null,
+          imagePath: null,
+          isAbnormal: data.alert ?? false,
+          recordedAt: data.last_update ?? new Date().toISOString(),
+        });
+      }
+
+      // TODO: Gọi API thật để lấy stats, history, dailyData
+      // const statsResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/stats`);
+      // if (statsResp.ok) setStats(await statsResp.json());
+      // const historyResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/history`);
+      // if (historyResp.ok) setHistory(await historyResp.json());
     } catch (error) {
-      console.error(error);
+      setServerOnline(false);
+      setLatestDetection(null);
+      setStats(null);
+      setHistory([]);
+      setDailyData([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -287,9 +265,39 @@ export default function CameraScreen() {
           </View>
         </View>
 
-        {/* Camera feed */}
+        {/* Camera feed - dung WebView de hien MJPEG stream */}
         <View style={styles.cameraContainer}>
-          <Image source={{ uri: STREAM_URL }} style={styles.cameraImage} resizeMode="cover" />
+          {serverOnline && !cameraError ? (
+            <WebView
+              source={{ uri: STREAM_URL }}
+              style={styles.cameraImage}
+              javaScriptEnabled={false}
+              onError={() => setCameraError(true)}
+              onHttpError={() => setCameraError(true)}
+              scrollEnabled={false}
+              bounces={false}
+              startInLoadingState
+              renderLoading={() => (
+                <View style={[styles.cameraImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }]}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={{ color: '#aaa', marginTop: 8, fontSize: 12 }}>Đang kết nối camera...</Text>
+                </View>
+              )}
+            />
+          ) : (
+            <View style={[styles.cameraImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }]}>
+              <Text style={{ fontSize: 32 }}>{serverOnline ? '📷' : '📵'}</Text>
+              <Text style={{ color: '#aaa', marginTop: 8, fontSize: 13 }}>
+                {serverOnline ? 'Camera không phản hồi' : 'Server đang offline'}
+              </Text>
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: '#2D6A2D', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
+                onPress={() => { setCameraError(false); fetchData(); }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Thử lại</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={styles.cameraOverlay}>
             <View style={styles.overlayTop}>
               <View style={styles.infoPill}>
@@ -421,7 +429,7 @@ export default function CameraScreen() {
               }}
               bezier
               style={{ marginVertical: 8, borderRadius: 8 }}
-              getDotColor={(dataPoint, dataPointIndex) => 
+              getDotColor={(dataPoint, dataPointIndex) =>
                 stats.hourlyData[dataPointIndex].isAbnormal ? COLORS.danger : COLORS.primary
               }
             />
@@ -510,9 +518,9 @@ export default function CameraScreen() {
                   </View>
                   <Text style={styles.historyConf}>{item.confidenceAvg}%</Text>
                 </View>
-                
+
                 <Text style={styles.historyBehaviorText}>{behaviorText}</Text>
-                
+
                 <View style={styles.historyCardBottom}>
                   <Text style={styles.historyTime}>
                     🕐 {new Date(item.recordedAt).toLocaleString('vi-VN')}
@@ -657,7 +665,7 @@ const styles = StyleSheet.create({
   analyticsHistoryContent: {
     padding: 16,
   },
-  
+
   // LIVE TAB
   cameraHeader: {
     flexDirection: 'row',
@@ -889,7 +897,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: COLORS.darkGray,
   },
-  
+
   // HISTORY TAB
   historyFilterRow: {
     flexDirection: 'row',
