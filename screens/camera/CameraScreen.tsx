@@ -106,11 +106,11 @@ export default function CameraScreen() {
   const fetchData = async () => {
     try {
       // Kiem tra server con song khong
-      const healthResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/health`, { signal: AbortSignal.timeout(3000) });
+      const healthResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/health`);
       setServerOnline(healthResp.ok);
 
       // Lay ket qua detection moi nhat
-      const detectResp = await fetch(DETECT_URL, { signal: AbortSignal.timeout(3000) });
+      const detectResp = await fetch(DETECT_URL);
       if (detectResp.ok) {
         const data = await detectResp.json();
         setLatestDetection({
@@ -284,13 +284,6 @@ export default function CameraScreen() {
               onHttpError={() => setCameraError(true)}
               scrollEnabled={false}
               bounces={false}
-              startInLoadingState
-              renderLoading={() => (
-                <View style={[styles.cameraImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }]}>
-                  <ActivityIndicator color="#fff" />
-                  <Text style={{ color: '#aaa', marginTop: 8, fontSize: 12 }}>Đang kết nối camera...</Text>
-                </View>
-              )}
             />
           ) : (
             <View style={[styles.cameraImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }]}>
