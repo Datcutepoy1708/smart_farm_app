@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,9 @@ import {
 import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-// Giả định thư viện api và socket. Trong thực tế lấy từ config của project
-// Nếu có thư viện khác (axios instance), vui lòng import vào.
-// import api from '../../services/api';
-// import { socket } from '../../services/socket';
 
 const { width } = Dimensions.get('window');
 
-// Thay bằng màu được yêu cầu
 const COLORS = {
   primary: '#2D6A2D',
   secondary: '#4CAF50',
@@ -35,47 +30,84 @@ const COLORS = {
   darkGray: '#424242',
 };
 
-// -- INTERFACES --
-export interface YoloDetection {
+// -- INTERFACES (khớp với API Python trả về) --
+export interface HistoryRecord {
   id: number;
-  barnId: number;
-  chickenCount: number;
-  abnormalCount: number;
-  behaviors: {
-    moving?: boolean;
-    clustering?: boolean;
-    eating?: boolean;
-    reason?: string;
-  } | null;
-  confidenceAvg: number | null;
-  imagePath: string | null;
+  healthy: number;
+  sick: number;
+  dead: number;
+  total: number;
+  alert: boolean;
+  image_url: string | null;
+  timestamp: string;
+}
+
+export interface HourlyDataPoint {
+  hour: string;
+  avgTotal: number;
+  avgHealthy: number;
+  avgSick: number;
+  avgDead: number;
   isAbnormal: boolean;
-  recordedAt: string;
 }
 
-export interface DetectionStats {
-  avgChickenCount: number;
-  totalDetections: number;
-  abnormalRate: number;
-  maxAbnormalCount: number;
-  hourlyData: {
-    hour: string;
-    chickenCount: number;
-    isAbnormal: boolean;
-  }[];
-}
-
-export interface DailyData {
+export interface DailyDataPoint {
   date: string;
-  avgCount: number;
-  abnormalCount: number;
+  avgTotal: number;
+  avgHealthy: number;
+  avgSick: number;
+  avgDead: number;
+  alertCount: number;
+  recordCount: number;
   abnormalRate: number;
 }
 
+export interface AnalyticsSummary {
+  totalRecords: number;
+  avgTotal: number;
+  avgHealthy: number;
+  avgSick: number;
+  avgDead: number;
+  abnormalRate: number;
+  maxAbnormal: number;
+  hours: number;
+}
 
+export interface AnalyticsData {
+  summary: AnalyticsSummary;
+  hourlyData: HourlyDataPoint[];
+  dailyData: DailyDataPoint[];
+}
+
+// Kết quả realtime từ /detect
+export interface RealtimeDetection {
+  khoe: number;
+  benh: number;
+  chet: number;
+  total: number;
+  healthy: number;
+  sick: number;
+  dead: number;
+  alert: boolean;
+  last_update: string | null;
+  camera_status: string;
+}
 
 type TabType = 'LIVE' | 'ANALYTICS' | 'HISTORY';
 type HistoryFilter = 'ALL' | 'ABNORMAL' | 'NORMAL';
+
+// ===================================================
+// Helper: fetch có timeout, tương thích React Native / Hermes
+// (AbortSignal.timeout() KHÔNG chạy được trên Android RN)
+// ===================================================
+function fetchWithTimeout(url: string, timeoutMs: number = 6000): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout: ${url}`)), timeoutMs);
+    fetch(url, { headers: { Accept: 'application/json' } })
+      .then((res) => { clearTimeout(timer); resolve(res); })
+      .catch((err) => { clearTimeout(timer); reject(err); });
+  });
+}
 
 export default function CameraScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('LIVE');
@@ -83,158 +115,151 @@ export default function CameraScreen() {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
-  // States
-  const [latestDetection, setLatestDetection] = useState<YoloDetection | null>(null);
-  const [stats, setStats] = useState<DetectionStats | null>(null);
-  const [dailyData, setDailyData] = useState<DailyData[]>([]);
-  const [history, setHistory] = useState<YoloDetection[]>([]);
-
-  // Analytics State
-  const [analyticsHours, setAnalyticsHours] = useState<number>(24);
-
-  // History State
-  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('ALL');
-  const [selectedDetection, setSelectedDetection] = useState<YoloDetection | null>(null);
-
-  // -- IP Python server (cùng mạng WiFi với điện thoại) --
-  const PYTHON_SERVER_IP = '192.168.0.103'; // ← Thay đây nếu cần
-  const STREAM_URL = `http://${PYTHON_SERVER_IP}:5000/video`;
-  const DETECT_URL = `http://${PYTHON_SERVER_IP}:5000/detect`;
-
+  // Realtime detection state
+  const [realtimeData, setRealtimeData] = useState<RealtimeDetection | null>(null);
   const [serverOnline, setServerOnline] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<boolean>(false);
 
-  const fetchData = async () => {
-    try {
-      // Kiem tra server con song khong
-      const healthResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/health`);
-      setServerOnline(healthResp.ok);
+  // Analytics state
+  const [analyticsHours, setAnalyticsHours] = useState<number>(24);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
-      // Lay ket qua detection moi nhat
-      const detectResp = await fetch(DETECT_URL);
-      if (detectResp.ok) {
-        const data = await detectResp.json();
-        setLatestDetection({
-          id: Date.now(),
-          barnId: 1,
-          chickenCount: data.total ?? 0,
-          abnormalCount: (data.sick ?? 0) + (data.dead ?? 0),
-          behaviors: null,
-          confidenceAvg: null,
-          imagePath: null,
-          isAbnormal: data.alert ?? false,
-          recordedAt: data.last_update ?? new Date().toISOString(),
-        });
+  // History state
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('ALL');
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
+
+  // -- IP Python server --
+  const PYTHON_SERVER_IP = '192.168.0.103'; // ← Thay IP này nếu cần
+  const STREAM_URL = `http://${PYTHON_SERVER_IP}:5000/video`;
+  const BASE_URL   = `http://${PYTHON_SERVER_IP}:5000`;
+
+  // ===================================================
+  // FETCH REALTIME (Tab LIVE)
+  // ===================================================
+  const fetchRealtimeData = useCallback(async () => {
+    try {
+      const healthResp = await fetchWithTimeout(`${BASE_URL}/health`, 5000);
+      const isOnline = healthResp.ok;
+      setServerOnline(isOnline);
+
+      if (!isOnline) {
+        setRealtimeData(null);
+        return;
       }
 
-      // TODO: Gọi API thật để lấy stats, history, dailyData
-      // const statsResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/stats`);
-      // if (statsResp.ok) setStats(await statsResp.json());
-      // const historyResp = await fetch(`http://${PYTHON_SERVER_IP}:5000/history`);
-      // if (historyResp.ok) setHistory(await historyResp.json());
-    } catch (error) {
+      const detectResp = await fetchWithTimeout(`${BASE_URL}/detect`, 5000);
+      if (detectResp.ok) {
+        const data: RealtimeDetection = await detectResp.json();
+        setRealtimeData(data);
+      }
+    } catch (err) {
+      console.warn('[Realtime] fetch error:', err);
       setServerOnline(false);
-      setLatestDetection(null);
-      setStats(null);
-      setHistory([]);
-      setDailyData([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setRealtimeData(null);
     }
-  };
+  }, [BASE_URL]);
 
+  // ===================================================
+  // FETCH ANALYTICS (Tab ANALYTICS)
+  // ===================================================
+  const fetchAnalytics = useCallback(async (hours: number) => {
+    setAnalyticsLoading(true);
+    try {
+      const resp = await fetchWithTimeout(`${BASE_URL}/api/analytics?hours=${hours}`, 8000);
+      if (resp.ok) {
+        const data: AnalyticsData = await resp.json();
+        setAnalyticsData(data);
+      }
+    } catch (e) {
+      console.warn('[Analytics] fetch error:', e);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [BASE_URL]);
+
+  // ===================================================
+  // FETCH HISTORY (Tab HISTORY)
+  // ===================================================
+  const fetchHistory = useCallback(async (filter: HistoryFilter) => {
+    setHistoryLoading(true);
+    try {
+      const filterParam = filter === 'ALL' ? 'all' : filter === 'ABNORMAL' ? 'abnormal' : 'normal';
+      const resp = await fetchWithTimeout(`${BASE_URL}/api/history?filter=${filterParam}&limit=50`, 8000);
+      if (resp.ok) {
+        const data: HistoryRecord[] = await resp.json();
+        setHistory(data);
+      }
+    } catch (e) {
+      console.warn('[History] fetch error:', e);
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [BASE_URL]);
+
+  // ===================================================
+  // INITIAL LOAD
+  // ===================================================
   useEffect(() => {
-    fetchData();
-
-    // Mock socket event (Thay bằng socket thật)
-    /*
-    socket.on('yolo:update', (data: {
-      chickenCount: number;
-      isAbnormal: boolean;
-      abnormalCount: number;
-      recordedAt: string;
-    }) => {
-      setLatestDetection(prev => prev ? {
-        ...prev,
-        chickenCount: data.chickenCount,
-        isAbnormal: data.isAbnormal,
-        abnormalCount: data.abnormalCount,
-        recordedAt: data.recordedAt,
-      } : null);
-    });
-
-    return () => {
-      socket.off('yolo:update');
+    const init = async () => {
+      setLoading(true);
+      await fetchRealtimeData();
+      setLoading(false);
     };
-    */
-  }, []);
+    init();
 
+    // Polling realtime moi 5 giay
+    const interval = setInterval(fetchRealtimeData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchRealtimeData]);
+
+  // Load du lieu khi doi tab
   useEffect(() => {
-    // Khi đổi giờ thống kê, gọi lại API Stats
-    if (!loading) {
-      // fetchStats(analyticsHours);
-      // tạm mô phỏng
+    if (activeTab === 'ANALYTICS') {
+      fetchAnalytics(analyticsHours);
+    } else if (activeTab === 'HISTORY') {
+      fetchHistory(historyFilter);
+    }
+  }, [activeTab]);
+
+  // Khi doi khoang gio analytics
+  useEffect(() => {
+    if (activeTab === 'ANALYTICS') {
+      fetchAnalytics(analyticsHours);
     }
   }, [analyticsHours]);
 
+  // Khi doi filter lich su
+  useEffect(() => {
+    if (activeTab === 'HISTORY') {
+      fetchHistory(historyFilter);
+    }
+  }, [historyFilter]);
+
+  // ===================================================
+  // REFRESH HANDLER
+  // ===================================================
   const onRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    if (activeTab === 'LIVE') {
+      fetchRealtimeData().finally(() => setRefreshing(false));
+    } else if (activeTab === 'ANALYTICS') {
+      fetchAnalytics(analyticsHours).finally(() => setRefreshing(false));
+    } else {
+      fetchHistory(historyFilter).finally(() => setRefreshing(false));
+    }
   };
 
   const sharedRefreshControl = (
     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
   );
 
-  // --- HELPER: Xác định trạng thái sức khỏe ---
-  type HealthStatus = 'healthy' | 'weak' | 'dead' | 'unknown';
-
-  const getHealthStatus = (detection: YoloDetection | null): HealthStatus => {
-    if (!detection) return 'unknown';
-    if (!detection.isAbnormal) return 'healthy';
-    if (detection.abnormalCount < 10) return 'weak';
-    return 'dead';
-  };
-
-  const healthConfig: Record<
-    HealthStatus,
-    { emoji: string; title: string; desc: string; bg: string; border: string; text: string }
-  > = {
-    healthy: {
-      emoji: '🟢',
-      title: 'ĐÀN GÀ KHỎE MẠNH',
-      desc: 'Không phát hiện bất thường',
-      bg: '#E8F5E9',
-      border: '#4CAF50',
-      text: '#2D6A2D',
-    },
-    weak: {
-      emoji: '🟡',
-      title: 'PHÁT HIỆN GÀ YẾU',
-      desc: 'Quan sát thêm, kiểm tra sức khỏe đàn gà',
-      bg: '#FFF3E0',
-      border: '#FF9800',
-      text: '#E65100',
-    },
-    dead: {
-      emoji: '🔴',
-      title: 'PHÁT HIỆN GÀ CHẾT',
-      desc: 'Kiểm tra ngay và xử lý!',
-      bg: '#FFEBEE',
-      border: '#F44336',
-      text: '#C62828',
-    },
-    unknown: {
-      emoji: '⚪',
-      title: 'CHƯA CÓ DỮ LIỆU',
-      desc: 'Camera chưa gửi kết quả',
-      bg: '#F5F5F5',
-      border: '#BDBDBD',
-      text: '#757575',
-    },
-  };
-
+  // ===================================================
+  // HELPERS
+  // ===================================================
   const timeAgo = (isoString: string): string => {
     const date = new Date(isoString);
     const now = new Date();
@@ -246,10 +271,51 @@ export default function CameraScreen() {
     return `Hôm nay ${timeStr}`;
   };
 
-  // --- RENDER LIVE TAB ---
+  const getHealthStatus = () => {
+    if (!realtimeData) return 'unknown';
+    if (!realtimeData.alert) return 'healthy';
+    if (realtimeData.dead > 0) return 'dead';
+    return 'weak';
+  };
+
+  type HealthStatus = 'healthy' | 'weak' | 'dead' | 'unknown';
+  const healthConfig: Record<
+    HealthStatus,
+    { emoji: string; title: string; desc: string; bg: string; border: string; text: string }
+  > = {
+    healthy: {
+      emoji: '🟢',
+      title: 'ĐÀN GÀ KHỎE MẠNH',
+      desc: 'Không phát hiện bất thường',
+      bg: '#E8F5E9', border: '#4CAF50', text: '#2D6A2D',
+    },
+    weak: {
+      emoji: '🟡',
+      title: 'PHÁT HIỆN GÀ ỐM',
+      desc: 'Quan sát thêm, kiểm tra sức khỏe đàn gà',
+      bg: '#FFF3E0', border: '#FF9800', text: '#E65100',
+    },
+    dead: {
+      emoji: '🔴',
+      title: 'PHÁT HIỆN GÀ CHẾT',
+      desc: 'Kiểm tra ngay và xử lý!',
+      bg: '#FFEBEE', border: '#F44336', text: '#C62828',
+    },
+    unknown: {
+      emoji: '⚪',
+      title: 'CHƯA CÓ DỮ LIỆU',
+      desc: 'Camera chưa gửi kết quả',
+      bg: '#F5F5F5', border: '#BDBDBD', text: '#757575',
+    },
+  };
+
+  // ===================================================
+  // RENDER: LIVE TAB
+  // ===================================================
   const renderLiveTab = () => {
-    const status = getHealthStatus(latestDetection);
+    const status = getHealthStatus();
     const config = healthConfig[status];
+    const total = realtimeData?.total ?? 0;
 
     return (
       <ScrollView
@@ -266,19 +332,17 @@ export default function CameraScreen() {
           </View>
         </View>
 
-        {/* Camera feed - dung WebView de hien MJPEG stream */}
+        {/* Camera feed */}
         <View style={styles.cameraContainer}>
           {serverOnline && !cameraError ? (
             <>
               <WebView
-                source={{ 
+                source={{
                   html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:cover;" onerror="window.ReactNativeWebView.postMessage('error');" /></body></html>`,
-                  baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
+                  baseUrl: BASE_URL,
                 }}
                 onMessage={(event) => {
-                  if (event.nativeEvent.data === 'error') {
-                    setCameraError(true);
-                  }
+                  if (event.nativeEvent.data === 'error') setCameraError(true);
                 }}
                 style={styles.cameraImage}
                 javaScriptEnabled={true}
@@ -287,10 +351,7 @@ export default function CameraScreen() {
                 scrollEnabled={false}
                 bounces={false}
               />
-              <TouchableOpacity
-                style={styles.expandButton}
-                onPress={() => setIsFullScreen(true)}
-              >
+              <TouchableOpacity style={styles.expandButton} onPress={() => setIsFullScreen(true)}>
                 <Text style={styles.expandButtonText}>⛶ Phóng to</Text>
               </TouchableOpacity>
             </>
@@ -302,7 +363,7 @@ export default function CameraScreen() {
               </Text>
               <TouchableOpacity
                 style={{ marginTop: 12, backgroundColor: '#2D6A2D', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
-                onPress={() => { setCameraError(false); fetchData(); }}
+                onPress={() => { setCameraError(false); fetchRealtimeData(); }}
               >
                 <Text style={{ color: '#fff', fontWeight: 'bold' }}>Thử lại</Text>
               </TouchableOpacity>
@@ -311,9 +372,7 @@ export default function CameraScreen() {
           <View style={styles.cameraOverlay}>
             <View style={styles.overlayTop}>
               <View style={styles.infoPill}>
-                <Text style={styles.overlayText}>
-                  🐔 {latestDetection?.chickenCount ?? '--'} con
-                </Text>
+                <Text style={styles.overlayText}>🐔 {total} con</Text>
               </View>
             </View>
           </View>
@@ -323,12 +382,28 @@ export default function CameraScreen() {
           </View>
         </View>
 
+        {/* Stats realtime */}
+        {realtimeData && (
+          <View style={styles.realtimeStatsRow}>
+            <View style={[styles.realtimeStat, { borderLeftColor: COLORS.secondary }]}>
+              <Text style={styles.realtimeStatNum}>{realtimeData.healthy}</Text>
+              <Text style={styles.realtimeStatLabel}>🟢 Khỏe</Text>
+            </View>
+            <View style={[styles.realtimeStat, { borderLeftColor: COLORS.warning }]}>
+              <Text style={styles.realtimeStatNum}>{realtimeData.sick}</Text>
+              <Text style={styles.realtimeStatLabel}>🟡 Ốm</Text>
+            </View>
+            <View style={[styles.realtimeStat, { borderLeftColor: COLORS.danger }]}>
+              <Text style={styles.realtimeStatNum}>{realtimeData.dead}</Text>
+              <Text style={styles.realtimeStatLabel}>🔴 Chết</Text>
+            </View>
+          </View>
+        )}
+
         {/* Tổng số gà */}
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>🐔 Tổng số gà:</Text>
-          <Text style={styles.totalCount}>
-            {latestDetection?.chickenCount ?? '--'} con
-          </Text>
+          <Text style={styles.totalCount}>{total} con</Text>
         </View>
 
         {/* Section title */}
@@ -338,11 +413,7 @@ export default function CameraScreen() {
         <View
           style={[
             styles.healthStatusCard,
-            {
-              backgroundColor: config.bg,
-              borderColor: config.border,
-              borderWidth: 2,
-            },
+            { backgroundColor: config.bg, borderColor: config.border, borderWidth: 2 },
           ]}
         >
           <Text style={styles.healthEmoji}>{config.emoji}</Text>
@@ -353,18 +424,55 @@ export default function CameraScreen() {
         {/* Thời gian cập nhật */}
         <Text style={styles.updateTime}>
           🕐 Cập nhật:{' '}
-          {latestDetection ? timeAgo(latestDetection.recordedAt) : 'Chưa có dữ liệu'}
+          {realtimeData?.last_update ? timeAgo(realtimeData.last_update) : 'Chưa có dữ liệu'}
         </Text>
       </ScrollView>
     );
   };
 
-  // --- RENDER ANALYTICS TAB ---
+  // ===================================================
+  // RENDER: ANALYTICS TAB
+  // ===================================================
   const renderAnalyticsTab = () => {
-    if (!stats) return null;
+    if (analyticsLoading) {
+      return (
+        <View style={styles.centerBox}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.centerText}>Đang tải dữ liệu phân tích...</Text>
+        </View>
+      );
+    }
+
+    if (!analyticsData || analyticsData.summary.totalRecords === 0) {
+      return (
+        <ScrollView
+          style={styles.tabContent}
+          contentContainerStyle={styles.analyticsHistoryContent}
+          refreshControl={sharedRefreshControl}
+        >
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>📊</Text>
+            <Text style={styles.emptyTitle}>Chưa có dữ liệu phân tích</Text>
+            <Text style={styles.emptyDesc}>
+              Server cần chạy ít nhất vài phút để tích lũy dữ liệu.{'\n'}Kéo xuống để tải lại.
+            </Text>
+          </View>
+        </ScrollView>
+      );
+    }
+
+    const s = analyticsData.summary;
+    const hourlyData = analyticsData.hourlyData;
+    const dailyData  = analyticsData.dailyData;
 
     return (
-      <ScrollView style={styles.tabContent} contentContainerStyle={styles.analyticsHistoryContent} showsVerticalScrollIndicator={false} refreshControl={sharedRefreshControl}>
+      <ScrollView
+        style={styles.tabContent}
+        contentContainerStyle={styles.analyticsHistoryContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={sharedRefreshControl}
+      >
+        {/* Filter giờ */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
           {[6, 12, 24, 168].map(h => (
             <TouchableOpacity
@@ -379,47 +487,49 @@ export default function CameraScreen() {
           ))}
         </ScrollView>
 
+        {/* Summary cards */}
         <View style={styles.statCardsGrid}>
           <View style={styles.analyticsStatCard}>
             <Text style={styles.analyticsStatIcon}>📊</Text>
-            <Text style={styles.analyticsStatTitle}>Tổng</Text>
-            <Text style={styles.analyticsStatValue}>{stats.totalDetections}</Text>
-            <Text style={styles.analyticsStatSub}>lần quét</Text>
+            <Text style={styles.analyticsStatTitle}>Tổng quét</Text>
+            <Text style={styles.analyticsStatValue}>{s.totalRecords}</Text>
+            <Text style={styles.analyticsStatSub}>lần</Text>
           </View>
           <View style={styles.analyticsStatCard}>
             <Text style={styles.analyticsStatIcon}>🐔</Text>
             <Text style={styles.analyticsStatTitle}>TB gà</Text>
-            <Text style={styles.analyticsStatValue}>{stats.avgChickenCount.toFixed(1)}</Text>
+            <Text style={styles.analyticsStatValue}>{s.avgTotal}</Text>
             <Text style={styles.analyticsStatSub}>con</Text>
           </View>
           <View style={styles.analyticsStatCard}>
             <Text style={styles.analyticsStatIcon}>⚠️</Text>
-            <Text style={styles.analyticsStatTitle}>B.Thường</Text>
-            <Text style={[styles.analyticsStatValue, { color: COLORS.warning }]}>{stats.abnormalRate}%</Text>
+            <Text style={styles.analyticsStatTitle}>Bất thường</Text>
+            <Text style={[styles.analyticsStatValue, { color: COLORS.warning }]}>{s.abnormalRate}%</Text>
             <Text style={styles.analyticsStatSub}>tỷ lệ</Text>
           </View>
           <View style={styles.analyticsStatCard}>
             <Text style={styles.analyticsStatIcon}>🔴</Text>
-            <Text style={styles.analyticsStatTitle}>Max</Text>
-            <Text style={[styles.analyticsStatValue, { color: COLORS.danger }]}>{stats.maxAbnormalCount}</Text>
+            <Text style={styles.analyticsStatTitle}>Max ốm/chết</Text>
+            <Text style={[styles.analyticsStatValue, { color: COLORS.danger }]}>{s.maxAbnormal}</Text>
             <Text style={styles.analyticsStatSub}>con</Text>
           </View>
         </View>
 
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Số lượng gà theo giờ</Text>
-          {stats.hourlyData && stats.hourlyData.length > 0 && (
+        {/* Line chart: số gà theo giờ */}
+        {hourlyData.length > 0 && (
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>🐔 Số gà trung bình theo giờ</Text>
             <LineChart
               data={{
-                labels: stats.hourlyData.map(h => h.hour.split(':')[0] + 'h'),
+                labels: hourlyData.map(h => h.hour),
                 datasets: [
                   {
-                    data: stats.hourlyData.map(h => h.chickenCount),
+                    data: hourlyData.map(h => h.avgTotal),
                     color: () => COLORS.primary,
                   },
                 ],
               }}
-              width={width - 40}
+              width={width - 56}
               height={220}
               yAxisSuffix=""
               yAxisLabel=""
@@ -431,34 +541,31 @@ export default function CameraScreen() {
                 color: (opacity = 1) => `rgba(45, 106, 45, ${opacity})`,
                 labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
                 style: { borderRadius: 16 },
-                propsForDots: {
-                  r: '4',
-                  strokeWidth: '2',
-                  stroke: COLORS.primary,
-                },
+                propsForDots: { r: '4', strokeWidth: '2', stroke: COLORS.primary },
               }}
               bezier
               style={{ marginVertical: 8, borderRadius: 8 }}
-              getDotColor={(dataPoint, dataPointIndex) =>
-                stats.hourlyData[dataPointIndex].isAbnormal ? COLORS.danger : COLORS.primary
+              getDotColor={(_dataPoint, dataPointIndex) =>
+                hourlyData[dataPointIndex]?.isAbnormal ? COLORS.danger : COLORS.primary
               }
             />
-          )}
-        </View>
+            <Text style={styles.chartNote}>● Đỏ = giờ có bất thường</Text>
+          </View>
+        )}
 
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Tỷ lệ bất thường (7 ngày)</Text>
-          {dailyData && dailyData.length > 0 && (
+        {/* Bar chart: tỷ lệ bất thường 7 ngày */}
+        {dailyData.length > 0 && (
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>📅 Tỷ lệ bất thường (7 ngày)</Text>
             <BarChart
               data={{
-                labels: dailyData.map(d => d.date.substring(8, 10) + '/' + d.date.substring(5, 7)),
-                datasets: [
-                  {
-                    data: dailyData.map(d => d.abnormalRate),
-                  },
-                ],
+                labels: dailyData.map(d => {
+                  const parts = d.date.split('-');
+                  return `${parts[2]}/${parts[1]}`;
+                }),
+                datasets: [{ data: dailyData.map(d => d.abnormalRate) }],
               }}
-              width={width - 40}
+              width={width - 56}
               height={220}
               yAxisSuffix="%"
               yAxisLabel=""
@@ -467,29 +574,94 @@ export default function CameraScreen() {
                 backgroundGradientFrom: COLORS.white,
                 backgroundGradientTo: COLORS.white,
                 decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(255, 152, 0, ${opacity})`, // Warning color
+                color: (opacity = 1) => `rgba(255, 152, 0, ${opacity})`,
                 labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
                 barPercentage: 0.5,
               }}
               style={{ marginVertical: 8, borderRadius: 8 }}
             />
-          )}
-        </View>
+          </View>
+        )}
+
+        {/* Bar chart: số gà ốm/chết theo ngày */}
+        {dailyData.length > 0 && (
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>🟡 Gà ốm + chết trung bình theo ngày</Text>
+            <BarChart
+              data={{
+                labels: dailyData.map(d => {
+                  const parts = d.date.split('-');
+                  return `${parts[2]}/${parts[1]}`;
+                }),
+                datasets: [{ data: dailyData.map(d => d.avgSick + d.avgDead) }],
+              }}
+              width={width - 56}
+              height={200}
+              yAxisSuffix=""
+              yAxisLabel=""
+              chartConfig={{
+                backgroundColor: COLORS.white,
+                backgroundGradientFrom: COLORS.white,
+                backgroundGradientTo: COLORS.white,
+                decimalPlaces: 1,
+                color: (opacity = 1) => `rgba(244, 67, 54, ${opacity})`,
+                labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                barPercentage: 0.5,
+              }}
+              style={{ marginVertical: 8, borderRadius: 8 }}
+            />
+          </View>
+        )}
       </ScrollView>
     );
   };
 
-  // --- RENDER HISTORY TAB ---
+  // ===================================================
+  // RENDER: HISTORY TAB
+  // ===================================================
   const renderHistoryTab = () => {
-    const filteredHistory = history.filter(item => {
-      if (historyFilter === 'ALL') return true;
-      if (historyFilter === 'ABNORMAL') return item.isAbnormal;
-      if (historyFilter === 'NORMAL') return !item.isAbnormal;
-      return true;
-    });
+    if (historyLoading) {
+      return (
+        <View style={styles.centerBox}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.centerText}>Đang tải lịch sử...</Text>
+        </View>
+      );
+    }
+
+    if (history.length === 0) {
+      return (
+        <View style={[styles.tabContent, styles.analyticsHistoryContent]}>
+          {/* Filter */}
+          <View style={styles.historyFilterRow}>
+            {[
+              { id: 'ALL', label: 'Tất cả' },
+              { id: 'ABNORMAL', label: 'Bất thường' },
+              { id: 'NORMAL', label: 'Bình thường' },
+            ].map(tab => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.historyFilterChip, historyFilter === tab.id && styles.historyFilterChipActive]}
+                onPress={() => setHistoryFilter(tab.id as HistoryFilter)}
+              >
+                <Text style={[styles.historyFilterText, historyFilter === tab.id && styles.historyFilterTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>📋</Text>
+            <Text style={styles.emptyTitle}>Chưa có lịch sử</Text>
+            <Text style={styles.emptyDesc}>Kéo xuống để tải lại dữ liệu.</Text>
+          </View>
+        </View>
+      );
+    }
 
     return (
       <View style={[styles.tabContent, styles.analyticsHistoryContent]}>
+        {/* Filter */}
         <View style={styles.historyFilterRow}>
           {[
             { id: 'ALL', label: 'Tất cả' },
@@ -509,31 +681,44 @@ export default function CameraScreen() {
         </View>
 
         <FlatList
-          data={filteredHistory}
+          data={history}
           refreshControl={sharedRefreshControl}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={{ paddingBottom: 20 }}
           renderItem={({ item }) => {
-            const isAb = item.isAbnormal;
-            let behaviorText = 'Di chuyển bình thường';
-            if (item.behaviors?.clustering) behaviorText = 'Đang tụm góc ⚠️';
-            else if (item.behaviors?.eating === false) behaviorText = 'Không ăn uống ⚠️';
-
+            const isAb = item.alert;
             return (
-              <TouchableOpacity style={styles.historyCard} onPress={() => setSelectedDetection(item)}>
+              <TouchableOpacity style={styles.historyCard} onPress={() => setSelectedRecord(item)}>
                 <View style={styles.historyCardTop}>
                   <View style={styles.historyCardTitleRow}>
                     <View style={[styles.statusIndicator, { backgroundColor: isAb ? COLORS.danger : COLORS.secondary }]} />
-                    <Text style={styles.historyChickenCount}>{item.chickenCount} con</Text>
+                    <Text style={styles.historyChickenCount}>{item.total} con</Text>
                   </View>
-                  <Text style={styles.historyConf}>{item.confidenceAvg}%</Text>
+                  <View style={styles.historyRightBadge}>
+                    {item.image_url && (
+                      <View style={styles.snapBadge}>
+                        <Text style={styles.snapBadgeText}>📷 Ảnh</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
 
-                <Text style={styles.historyBehaviorText}>{behaviorText}</Text>
+                {/* Chi tiet khoe/om/chet */}
+                <View style={styles.historyDetailRow}>
+                  <Text style={[styles.historyDetailItem, { color: COLORS.secondary }]}>
+                    🟢 {item.healthy} khỏe
+                  </Text>
+                  <Text style={[styles.historyDetailItem, { color: COLORS.warning }]}>
+                    🟡 {item.sick} ốm
+                  </Text>
+                  <Text style={[styles.historyDetailItem, { color: COLORS.danger }]}>
+                    🔴 {item.dead} chết
+                  </Text>
+                </View>
 
                 <View style={styles.historyCardBottom}>
                   <Text style={styles.historyTime}>
-                    🕐 {new Date(item.recordedAt).toLocaleString('vi-VN')}
+                    🕐 {new Date(item.timestamp).toLocaleString('vi-VN')}
                   </Text>
                   {isAb && (
                     <View style={styles.historyAbnormalBadge}>
@@ -549,6 +734,9 @@ export default function CameraScreen() {
     );
   };
 
+  // ===================================================
+  // MAIN RENDER
+  // ===================================================
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* HEADER TABS */}
@@ -577,53 +765,83 @@ export default function CameraScreen() {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-          {activeTab === 'LIVE' && renderLiveTab()}
+          {activeTab === 'LIVE'      && renderLiveTab()}
           {activeTab === 'ANALYTICS' && renderAnalyticsTab()}
-          {activeTab === 'HISTORY' && renderHistoryTab()}
+          {activeTab === 'HISTORY'   && renderHistoryTab()}
         </View>
       )}
 
-      {/* MODAL CHI TIẾT */}
-      <Modal visible={!!selectedDetection} transparent animationType="fade">
+      {/* MODAL CHI TIẾT LỊCH SỬ (có ảnh snapshot) */}
+      <Modal visible={!!selectedRecord} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Chi tiết kiểm tra</Text>
-            {selectedDetection && (
-              <View style={styles.modalBody}>
-                <View style={styles.modalRow}>
-                  <Text style={styles.modalLabel}>Số gà đếm được:</Text>
-                  <Text style={styles.modalValue}>{selectedDetection.chickenCount}</Text>
-                </View>
-                <View style={styles.modalRow}>
-                  <Text style={styles.modalLabel}>Gà bất thường:</Text>
-                  <Text style={[styles.modalValue, { color: selectedDetection.abnormalCount > 0 ? COLORS.danger : COLORS.darkGray }]}>
-                    {selectedDetection.abnormalCount} con
-                  </Text>
-                </View>
-                <View style={styles.modalRow}>
-                  <Text style={styles.modalLabel}>Độ tin cậy:</Text>
-                  <Text style={styles.modalValue}>{selectedDetection.confidenceAvg}%</Text>
-                </View>
-                <View style={styles.modalRow}>
-                  <Text style={styles.modalLabel}>Thời gian:</Text>
-                  <Text style={styles.modalValue}>{new Date(selectedDetection.recordedAt).toLocaleString('vi-VN')}</Text>
-                </View>
-                {selectedDetection.behaviors?.reason && (
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Lý do:</Text>
-                    <Text style={[styles.modalValue, { color: COLORS.warning, fontWeight: 'bold' }]}>
-                      {selectedDetection.behaviors.reason}
-                    </Text>
+
+            {selectedRecord && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Ảnh snapshot nếu có */}
+                {selectedRecord.image_url ? (
+                  <View style={styles.snapshotContainer}>
+                    <Image
+                      source={{ uri: selectedRecord.image_url }}
+                      style={styles.snapshotImage}
+                      resizeMode="contain"
+                    />
+                    <View style={[styles.snapAlertBadge,
+                      { backgroundColor: selectedRecord.alert ? '#FFEBEE' : '#E8F5E9' }]}>
+                      <Text style={[styles.snapAlertText,
+                        { color: selectedRecord.alert ? COLORS.danger : COLORS.primary }]}>
+                        {selectedRecord.alert ? '⚠️ Phát hiện bất thường' : '✅ Bình thường'}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.noSnapshotBox}>
+                    <Text style={styles.noSnapshotText}>📷 Không có ảnh (bản ghi bình thường)</Text>
                   </View>
                 )}
-              </View>
+
+                {/* Thông tin chi tiết */}
+                <View style={styles.modalBody}>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Tổng số gà:</Text>
+                    <Text style={styles.modalValue}>{selectedRecord.total} con</Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>🟢 Gà khỏe:</Text>
+                    <Text style={[styles.modalValue, { color: COLORS.secondary }]}>
+                      {selectedRecord.healthy} con
+                    </Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>🟡 Gà ốm:</Text>
+                    <Text style={[styles.modalValue, { color: selectedRecord.sick > 0 ? COLORS.warning : COLORS.darkGray }]}>
+                      {selectedRecord.sick} con
+                    </Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>🔴 Gà chết:</Text>
+                    <Text style={[styles.modalValue, { color: selectedRecord.dead > 0 ? COLORS.danger : COLORS.darkGray }]}>
+                      {selectedRecord.dead} con
+                    </Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Thời gian:</Text>
+                    <Text style={styles.modalValue}>
+                      {new Date(selectedRecord.timestamp).toLocaleString('vi-VN')}
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
             )}
-            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setSelectedDetection(null)}>
+
+            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setSelectedRecord(null)}>
               <Text style={styles.modalCloseText}>ĐÓNG</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
       {/* FULL SCREEN MODAL */}
       <Modal visible={isFullScreen} transparent={false} animationType="fade" onRequestClose={() => setIsFullScreen(false)}>
         <View style={styles.fullScreenContainer}>
@@ -632,9 +850,9 @@ export default function CameraScreen() {
           </TouchableOpacity>
           {serverOnline && (
             <WebView
-              source={{ 
+              source={{
                 html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:contain;" /></body></html>`,
-                baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
+                baseUrl: BASE_URL,
               }}
               style={{ flex: 1, backgroundColor: 'black' }}
               javaScriptEnabled={true}
@@ -648,7 +866,9 @@ export default function CameraScreen() {
   );
 }
 
-// -- STYLES --
+// ===================================================
+// STYLES
+// ===================================================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -658,6 +878,37 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  centerBox: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  centerText: {
+    marginTop: 12,
+    color: COLORS.gray,
+    fontSize: 14,
+  },
+  emptyBox: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.darkGray,
+    marginBottom: 8,
+  },
+  emptyDesc: {
+    fontSize: 13,
+    color: COLORS.gray,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -701,6 +952,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 12,
     marginBottom: 12,
   },
   cameraTitle: {
@@ -731,15 +984,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 220,
     backgroundColor: '#000',
-    borderRadius: 12,
     overflow: 'hidden',
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   cameraImage: {
     width: '100%',
     height: '100%',
-    opacity: 0.8,
   },
   cameraOverlay: {
     position: 'absolute',
@@ -787,7 +1038,50 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
-  // Tổng số gà row
+  expandButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  expandButtonText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+
+  // Realtime stats row (3 ô nhỏ dưới camera)
+  realtimeStatsRow: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 8,
+  },
+  realtimeStat: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    elevation: 1,
+  },
+  realtimeStatNum: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: COLORS.darkGray,
+  },
+  realtimeStatLabel: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 2,
+  },
+
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -813,7 +1107,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.primary,
   },
-
   healthSectionTitle: {
     fontSize: 13,
     fontWeight: 'bold',
@@ -822,42 +1115,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 4,
     letterSpacing: 0.5,
-  },
-  expandButton: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  expandButtonText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  fullScreenContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  closeFullScreenBtn: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  closeFullScreenText: {
-    color: '#FFF',
-    fontWeight: 'bold',
-    fontSize: 16,
   },
   healthStatusCard: {
     marginHorizontal: 16,
@@ -888,6 +1145,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
     fontStyle: 'italic',
+  },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  closeFullScreenBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  closeFullScreenText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 
   // ANALYTICS TAB
@@ -957,10 +1234,16 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   chartTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
     color: COLORS.darkGray,
+  },
+  chartNote: {
+    fontSize: 11,
+    color: COLORS.gray,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 
   // HISTORY TAB
@@ -1020,15 +1303,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.darkGray,
   },
-  historyConf: {
-    fontSize: 14,
-    color: COLORS.gray,
+  historyRightBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  snapBadge: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  snapBadgeText: {
+    fontSize: 11,
+    color: '#1565C0',
     fontWeight: '600',
   },
-  historyBehaviorText: {
-    fontSize: 14,
-    color: COLORS.darkGray,
+  historyDetailRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 8,
+  },
+  historyDetailItem: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   historyCardBottom: {
     flexDirection: 'row',
@@ -1057,14 +1357,15 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    width: '85%',
     backgroundColor: COLORS.white,
-    borderRadius: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 20,
+    paddingBottom: 48,
+    maxHeight: '90%',
   },
   modalTitle: {
     fontSize: 18,
@@ -1073,8 +1374,38 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
+  // Snapshot trong modal
+  snapshotContainer: {
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  snapshotImage: {
+    width: '100%',
+    height: 220,
+  },
+  snapAlertBadge: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  snapAlertText: {
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  noSnapshotBox: {
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  noSnapshotText: {
+    color: COLORS.gray,
+    fontSize: 13,
+  },
   modalBody: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   modalRow: {
     flexDirection: 'row',
@@ -1095,9 +1426,11 @@ const styles = StyleSheet.create({
   },
   modalCloseButton: {
     backgroundColor: COLORS.primary,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
   },
   modalCloseText: {
     color: COLORS.white,
