@@ -23,7 +23,7 @@ interface BarnDevice {
   id: number;
   barnId: number;
   name: string;
-  deviceType: 'feeder' | 'water' | 'fan' | 'heater' | 'washer';
+  deviceType: 'feeder' | 'water' | 'fan' | 'heater' | 'washer' | 'door';
   mqttTopic: string;
   currentStatus: 'ON' | 'OFF';
   isActive: boolean;
@@ -111,6 +111,7 @@ const DevicesScreen = () => {
       case 'fan': return 'aperture';
       case 'heater': return 'sunny';
       case 'washer': return 'sparkles';
+      case 'door': return 'log-in-outline';
       default: return 'hardware-chip';
     }
   };

@@ -14,9 +14,9 @@ const DashboardScreen = () => {
     logout();
   };
 
-  const goToScheduleNote = () => {
-    (navigation as any).navigate('ScheduleNote');
-  };
+  const goToSchedule = () => navigation.navigate('Schedule' as never);
+  const goToCamera = () => navigation.navigate('Camera' as never);
+  const goToReport = () => navigation.navigate('Overview' as never);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -34,41 +34,41 @@ const DashboardScreen = () => {
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
+          <TouchableOpacity style={styles.statCard} onPress={() => navigation.navigate('Overview' as never)}>
             <Icon name="home" size={32} color={COLORS.primary} />
             <Text style={styles.statNumber}>4</Text>
             <Text style={styles.statLabel}>Chuồng trại</Text>
-          </View>
-          <View style={styles.statCard}>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard} onPress={() => navigation.navigate('Overview' as never)}>
             <Icon name="pets" size={32} color={COLORS.secondary} />
             <Text style={styles.statNumber}>2,450</Text>
             <Text style={styles.statLabel}>Gà thịt</Text>
-          </View>
-          <View style={styles.statCard}>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard} onPress={() => navigation.navigate('Devices' as never)}>
             <Icon name="devices" size={32} color={COLORS.warning} />
             <Text style={styles.statNumber}>16</Text>
             <Text style={styles.statLabel}>Thiết bị</Text>
-          </View>
-          <View style={styles.statCard}>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard} onPress={() => navigation.navigate('Alerts' as never)}>
             <Icon name="warning" size={32} color={COLORS.danger} />
             <Text style={styles.statNumber}>3</Text>
             <Text style={styles.statLabel}>Cảnh báo</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Quick Actions */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
           <View style={styles.actionsContainer}>
-            <TouchableOpacity style={styles.actionButton} onPress={goToScheduleNote}>
+            <TouchableOpacity style={styles.actionButton} onPress={goToSchedule}>
               <Icon name="event-note" size={24} color={COLORS.white} />
               <Text style={styles.actionText}>Lịch GC</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={goToCamera}>
               <Icon name="camera-alt" size={24} color={COLORS.white} />
               <Text style={styles.actionText}>Camera</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={goToReport}>
               <Icon name="assessment" size={24} color={COLORS.white} />
               <Text style={styles.actionText}>Báo cáo</Text>
             </TouchableOpacity>
