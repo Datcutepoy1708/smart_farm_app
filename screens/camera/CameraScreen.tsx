@@ -81,6 +81,7 @@ export default function CameraScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('LIVE');
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
   // States
   const [latestDetection, setLatestDetection] = useState<YoloDetection | null>(null);
@@ -268,23 +269,31 @@ export default function CameraScreen() {
         {/* Camera feed - dung WebView de hien MJPEG stream */}
         <View style={styles.cameraContainer}>
           {serverOnline && !cameraError ? (
-            <WebView
-              source={{ 
-                html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:cover;" onerror="window.ReactNativeWebView.postMessage('error');" /></body></html>`,
-                baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
-              }}
-              onMessage={(event) => {
-                if (event.nativeEvent.data === 'error') {
-                  setCameraError(true);
-                }
-              }}
-              style={styles.cameraImage}
-              javaScriptEnabled={true}
-              onError={() => setCameraError(true)}
-              onHttpError={() => setCameraError(true)}
-              scrollEnabled={false}
-              bounces={false}
-            />
+            <>
+              <WebView
+                source={{ 
+                  html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:cover;" onerror="window.ReactNativeWebView.postMessage('error');" /></body></html>`,
+                  baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
+                }}
+                onMessage={(event) => {
+                  if (event.nativeEvent.data === 'error') {
+                    setCameraError(true);
+                  }
+                }}
+                style={styles.cameraImage}
+                javaScriptEnabled={true}
+                onError={() => setCameraError(true)}
+                onHttpError={() => setCameraError(true)}
+                scrollEnabled={false}
+                bounces={false}
+              />
+              <TouchableOpacity
+                style={styles.expandButton}
+                onPress={() => setIsFullScreen(true)}
+              >
+                <Text style={styles.expandButtonText}>⛶ Phóng to</Text>
+              </TouchableOpacity>
+            </>
           ) : (
             <View style={[styles.cameraImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }]}>
               <Text style={{ fontSize: 32 }}>{serverOnline ? '📷' : '📵'}</Text>
@@ -615,6 +624,26 @@ export default function CameraScreen() {
           </View>
         </View>
       </Modal>
+      {/* FULL SCREEN MODAL */}
+      <Modal visible={isFullScreen} transparent={false} animationType="fade" onRequestClose={() => setIsFullScreen(false)}>
+        <View style={styles.fullScreenContainer}>
+          <TouchableOpacity style={styles.closeFullScreenBtn} onPress={() => setIsFullScreen(false)}>
+            <Text style={styles.closeFullScreenText}>✖ Đóng</Text>
+          </TouchableOpacity>
+          {serverOnline && (
+            <WebView
+              source={{ 
+                html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${STREAM_URL}" style="width:100%;height:100%;object-fit:contain;" /></body></html>`,
+                baseUrl: `http://${PYTHON_SERVER_IP}:5000` 
+              }}
+              style={{ flex: 1, backgroundColor: 'black' }}
+              javaScriptEnabled={true}
+              scrollEnabled={false}
+              bounces={false}
+            />
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -785,7 +814,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
 
-  // Health status section
   healthSectionTitle: {
     fontSize: 13,
     fontWeight: 'bold',
@@ -794,6 +822,42 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 4,
     letterSpacing: 0.5,
+  },
+  expandButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  expandButtonText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  closeFullScreenBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  closeFullScreenText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   healthStatusCard: {
     marginHorizontal: 16,
