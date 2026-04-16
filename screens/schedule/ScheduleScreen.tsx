@@ -356,10 +356,13 @@ export default function ScheduleScreen() {
               <Text style={styles.timeIcon}>🕐</Text>
               <Text style={styles.timeText}>{formatAMPM(item.scheduledTime)}</Text>
             </View>
-            <Text style={styles.durationText}>
-              Chạy: {item.durationSeconds} giây
-              {item.feedAmountGram ? ` (${item.feedAmountGram}g)` : ''}
-            </Text>
+            {item.deviceType === 'feeder' ? (
+              <View style={styles.feedBadge}>
+                <Text style={styles.feedBadgeText}>🌾 {item.feedAmountGram ? `${item.feedAmountGram.toLocaleString()}g` : '—'}</Text>
+              </View>
+            ) : (
+              <Text style={styles.durationText}>Chạy: {item.durationSeconds}s</Text>
+            )}
           </View>
 
           <View style={styles.daysContainer}>
@@ -540,25 +543,66 @@ export default function ScheduleScreen() {
                 })}
               </View>
 
-              <Text style={styles.inputLabel}>Thời gian duy trì (giây)</Text>
-              <TextInput
-                style={styles.textInput}
-                value={newDuration}
-                onChangeText={setNewDuration}
-                keyboardType="numeric"
-                placeholder="Ví dụ: 30"
-              />
-
-              {availableDevices.find(d => d.id === newDeviceId)?.type === 'feeder' && (
+              {/* Thời gian duy trì – chỉ hiện với thiết bị không phải feeder */}
+              {availableDevices.find(d => d.id === newDeviceId)?.type !== 'feeder' && (
                 <>
-                  <Text style={styles.inputLabel}>Trọng lượng Feed (gram)</Text>
+                  <Text style={styles.inputLabel}>Thời gian duy trì (giây)</Text>
                   <TextInput
                     style={styles.textInput}
-                    value={newFeedAmount}
-                    onChangeText={setNewFeedAmount}
+                    value={newDuration}
+                    onChangeText={setNewDuration}
                     keyboardType="numeric"
-                    placeholder="Khoảng bao nhiêu gram?"
+                    placeholder="Ví dụ: 30"
                   />
+                </>
+              )}
+
+              {/* Khối lượng cho ăn – chỉ hiện với feeder */}
+              {availableDevices.find(d => d.id === newDeviceId)?.type === 'feeder' && (
+                <>
+                  <Text style={styles.inputLabel}>Khối lượng cho ăn (gram)</Text>
+                  <Text style={styles.inputHint}>Máy sẽ đổ đúng khối lượng này, cân bằng load cell</Text>
+                  <View style={styles.stepperRow}>
+                    <TouchableOpacity
+                      style={styles.stepperBtn}
+                      onPress={() => {
+                        const val = Math.max(100, (parseInt(newFeedAmount) || 0) - 500);
+                        setNewFeedAmount(val.toString());
+                      }}
+                    >
+                      <Text style={styles.stepperBtnText}>−500g</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={styles.stepperInput}
+                      value={newFeedAmount}
+                      onChangeText={(v) => setNewFeedAmount(v.replace(/[^0-9]/g, ''))}
+                      keyboardType="numeric"
+                      placeholder="0"
+                    />
+                    <Text style={styles.stepperUnit}>g</Text>
+                    <TouchableOpacity
+                      style={styles.stepperBtn}
+                      onPress={() => {
+                        const val = Math.min(50000, (parseInt(newFeedAmount) || 0) + 500);
+                        setNewFeedAmount(val.toString());
+                      }}
+                    >
+                      <Text style={styles.stepperBtnText}>+500g</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.quickGramRow}>
+                    {[1000, 2000, 3000, 5000, 10000].map(g => (
+                      <TouchableOpacity
+                        key={g}
+                        style={[styles.quickGramBtn, newFeedAmount === g.toString() && styles.quickGramBtnActive]}
+                        onPress={() => setNewFeedAmount(g.toString())}
+                      >
+                        <Text style={[styles.quickGramText, newFeedAmount === g.toString() && styles.quickGramTextActive]}>
+                          {g >= 1000 ? `${g/1000}kg` : `${g}g`}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </>
               )}
 
@@ -725,6 +769,19 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontStyle: 'italic',
   },
+  feedBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.secondary,
+  },
+  feedBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
   daysContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -881,4 +938,73 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
+  // ── Stepper và Quick Gram Picker ──────────────────────────────────────────
+  inputHint: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
+    marginBottom: 10,
+    marginTop: -4,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9F9F9',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.grayLight,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  stepperBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    backgroundColor: '#EEEEEE',
+  },
+  stepperBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  stepperInput: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+    paddingVertical: 8,
+  },
+  stepperUnit: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    paddingRight: 12,
+  },
+  quickGramRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  quickGramBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: COLORS.grayLight,
+    backgroundColor: COLORS.white,
+  },
+  quickGramBtnActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  quickGramText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  quickGramTextActive: {
+    color: COLORS.white,
+  },
 });
+

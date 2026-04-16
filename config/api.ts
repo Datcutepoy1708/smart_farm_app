@@ -1,4 +1,6 @@
 // API Configuration
+const PRODUCTION_API_URL = 'https://smartfarmbackend-production.up.railway.app/api';
+
 const getBaseUrl = () => {
   // Priority: Environment Variable > Default IP > Fallback
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
@@ -9,27 +11,27 @@ const getBaseUrl = () => {
     return process.env.EXPO_PUBLIC_ANDROID_API_URL;
   }
   
-  return 'https://smartfarmbackend-production.up.railway.app/api'; // Production default
+  return PRODUCTION_API_URL;
 };
 
 export const API_CONFIG = {
-  // Development URLs
-  BASE_URL: __DEV__ ? getBaseUrl() : 'https://your-production-api.com',
+  // BASE_URL: dùng production URL cho cả dev lẫn prod (services/api.ts đã có API_URL đúng)
+  BASE_URL: getBaseUrl(),
   
-  // Alternative development URLs (try these if main URL doesn't work)
+  // Fallback URLs nếu main URL lỗi
   FALLBACK_URLS: [
-    getBaseUrl(),                    
-    'https://smartfarmbackend-production.up.railway.app/api',
+    getBaseUrl(),
+    PRODUCTION_API_URL,
   ],
   
-  // API Endpoints
+  // API Endpoints – KHÔNG có prefix '/api/' vì baseURL đã chứa '/api'
   ENDPOINTS: {
-    AUTH: '/api/auth',
-    BARNS: '/api/barns',
-    DEVICES: '/api/devices',
-    SCHEDULES: '/api/schedules',
-    FEEDS: '/api/feeds',
-    ALERTS: '/api/alerts',
+    AUTH: '/auth',
+    BARNS: '/barns',
+    DEVICES: '/devices',
+    SCHEDULES: '/schedules',
+    FEEDS: '/feed',
+    ALERTS: '/alerts',
   },
   
   // Request settings

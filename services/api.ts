@@ -70,6 +70,15 @@ export const feedApi = {
   getHistory: (barnId: number, days: number = 7) => api.get(`/barns/${barnId}/feed/history?days=${days}`),
 };
 
+// Weight Log APIs – ghi cân nặng mẫu, cập nhật avgWeightKg của flock
+export const weightLogApi = {
+  record: (barnId: number, data: { totalWeightKg: number; sampleCount: number; ageDays?: number }) =>
+    api.post(`/barns/${barnId}/feed/weight-log`, data),
+  getHistory: (barnId: number, limit = 10) =>
+    api.get(`/barns/${barnId}/feed/weight-logs?limit=${limit}`),
+};
+
+
 // Schedules APIs
 export const scheduleApi = {
   getBarnSchedules: (barnId: number) => api.get(`/barns/${barnId}/schedules`),
