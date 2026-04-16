@@ -7,6 +7,7 @@ export enum DeviceType {
   FAN = 'FAN',
   HEATER = 'HEATER',
   CAMERA = 'CAMERA',
+  DOOR = 'DOOR',
 }
 
 export enum AlertSeverity {
