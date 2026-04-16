@@ -132,7 +132,7 @@ export default function CameraScreen() {
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
 
   // -- IP Python server --
-  const PYTHON_SERVER_IP = '192.168.0.103'; // ← Thay IP này nếu cần
+  const PYTHON_SERVER_IP = 'http://10.109.201.205'; // ← Thay IP này nếu cần
   const STREAM_URL = `http://${PYTHON_SERVER_IP}:5000/video`;
   const BASE_URL   = `http://${PYTHON_SERVER_IP}:5000`;
 
