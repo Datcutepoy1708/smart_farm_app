@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/MaterialIcons';
 import type { ComponentProps } from 'react';
 import { useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { COLORS } from '../../constants/config';
 import { barnApi, noteApi } from '../../services/api';
 
@@ -144,11 +145,62 @@ const CreateNoteScreen = () => {
         reminderAt: reminderAt ? reminderAt.toISOString() : null,
       };
       const res = await noteApi.create(body);
-      const result = res.data as { success: boolean };
+      const result = res.data as { success: boolean; data?: { id: number } };
       if (result.success) {
-        RNAlert.alert('Thành công', 'Đã thêm ghi chú mới', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        // ── Lên lịch Local Notification nếu người dùng chọn nhắc nhở ──
+        if (reminderAt) {
+          const now = new Date();
+          const secondsUntilReminder = Math.floor((reminderAt.getTime() - now.getTime()) / 1000);
+
+          if (secondsUntilReminder > 0) {
+            // Xin quyền notification nếu chưa có
+            const { status } = await Notifications.requestPermissionsAsync();
+
+            if (status === 'granted') {
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: `🔔 Nhắc nhở: ${form.title.trim() || 'Ghi chú'}`,
+                  body: form.content.trim().slice(0, 100),
+                  sound: true,
+                  data: {
+                    type: 'reminder',
+                    noteId: result.data?.id ?? null,
+                  },
+                },
+                trigger: {
+                  type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                  seconds: secondsUntilReminder,
+                  repeats: false,
+                },
+              });
+              console.log(`✅ Đã lên lịch thông báo sau ${secondsUntilReminder}s`);
+            } else {
+              RNAlert.alert(
+                'Thiếu quyền thông báo',
+                'Vui lòng cấp quyền thông báo trong Cài đặt để nhận nhắc nhở.',
+              );
+            }
+          } else {
+            // Thời gian đặt đã qua → bắn ngay lập tức
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: `🔔 Nhắc nhở: ${form.title.trim() || 'Ghi chú'}`,
+                body: form.content.trim().slice(0, 100),
+                sound: true,
+                data: { type: 'reminder', noteId: result.data?.id ?? null },
+              },
+              trigger: null, // trigger: null = bắn ngay
+            });
+          }
+        }
+
+        RNAlert.alert(
+          'Thành công',
+          reminderAt
+            ? `Đã thêm ghi chú!\nBạn sẽ nhận thông báo lúc ${formatDateTime(reminderAt)}.`
+            : 'Đã thêm ghi chú mới',
+          [{ text: 'OK', onPress: () => navigation.goBack() }],
+        );
       } else {
         throw new Error('API trả về lỗi');
       }
