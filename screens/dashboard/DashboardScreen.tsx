@@ -14,7 +14,7 @@ const DashboardScreen = () => {
     logout();
   };
 
-  const goToSchedule = () => navigation.navigate('Schedule' as never);
+  const goToSchedule = () => navigation.navigate('ScheduleNote' as never);
   const goToCamera = () => navigation.navigate('Camera' as never);
   const goToReport = () => navigation.navigate('Overview' as never);
 
