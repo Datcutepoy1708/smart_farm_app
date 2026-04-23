@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../store/authStore';
 import { COLORS } from '../constants/config';
 import DrawerNavigator from './DrawerNavigator';
+import { navigationRef } from './navigationRef';
+import { socketService } from '../services/socket';
 
 import LoginScreen        from '../screens/auth/LoginScreen';
 import RegisterScreen     from '../screens/auth/RegisterScreen';
@@ -43,9 +45,21 @@ const AuthNavigator = () => {
 };
 
 const AppNavigator = () => {
-  const { user, isLoading } = useAuth();
+  const { user, token, isLoading } = useAuth();
   const [showSplash, setShowSplash] = React.useState(true);
-  const navigationRef = React.useRef<NavigationContainerRef<Record<string, object | undefined>>>(null);
+
+  // Khi user đăng nhập → kết nối socket và join farm room
+  React.useEffect(() => {
+    if (user && token) {
+      socketService.connect(token);
+      // Join đúng room theo userId — backend lắng nghe 'join:farm'
+      setTimeout(() => {
+        socketService.joinFarm(user.id);
+      }, 500);
+    } else {
+      socketService.disconnect();
+    }
+  }, [user, token]);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {

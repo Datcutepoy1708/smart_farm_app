@@ -71,16 +71,26 @@ class SocketService {
     });
   }
 
-  joinBarn(barnId: number): void {
+  // Giải phóng phòng cũ nếu có
+  joinFarm(userId: number): void {
     if (this.socket?.connected) {
-      this.socket.emit('join_barn', { barnId });
+      this.socket.emit('join:farm', { userId });
     }
   }
 
-  leaveBarn(barnId: number): void {
+  leaveFarm(userId: number): void {
     if (this.socket?.connected) {
-      this.socket.emit('leave_barn', { barnId });
+      this.socket.emit('leave:farm', { userId });
     }
+  }
+
+  // Backward-compat alias (xuất hiện ở một số screen)
+  joinBarn(barnId: number): void {
+    console.warn('[Socket] joinBarn đã deprecated, dùng joinFarm(userId)');
+  }
+
+  leaveBarn(barnId: number): void {
+    console.warn('[Socket] leaveBarn đã deprecated, dùng leaveFarm(userId)');
   }
 
   // Event listeners for real-time data

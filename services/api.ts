@@ -2,6 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import { useAuthStore } from '../store/authStore';
+import { navigationRef } from '../navigation/navigationRef';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -20,13 +21,17 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Interceptor: Handle 401 errors (unauthorized)
+// Interceptor: Xử lý lỗi 401 (unauthorized) — tự đăng xuất và về Login
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
       const { logout } = useAuthStore.getState();
       await logout();
+      // Reset về màn hình Auth (Login)
+      if (navigationRef.isReady()) {
+        navigationRef.reset({ index: 0, routes: [{ name: 'Auth' }] });
+      }
     }
     return Promise.reject(error);
   }
