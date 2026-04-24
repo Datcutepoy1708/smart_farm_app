@@ -8,6 +8,8 @@ import { COLORS } from '../constants/config';
 import DrawerNavigator from './DrawerNavigator';
 import { navigationRef } from './navigationRef';
 import { socketService } from '../services/socket';
+import { alertApi } from '../services/api';
+import { useAlertStore } from '../store/alertStore';
 
 import LoginScreen        from '../screens/auth/LoginScreen';
 import RegisterScreen     from '../screens/auth/RegisterScreen';
@@ -48,18 +50,38 @@ const AppNavigator = () => {
   const { user, token, isLoading } = useAuth();
   const [showSplash, setShowSplash] = React.useState(true);
 
+  const incrementUnread = useAlertStore((state) => state.incrementUnread);
+  const setUnreadCount = useAlertStore((state) => state.setUnreadCount);
+
   // Khi user đăng nhập → kết nối socket và join farm room
   React.useEffect(() => {
     if (user && token) {
       socketService.connect(token);
+      
+      // Lấy số thông báo chưa đọc (barnId = 1)
+      alertApi.getUnreadCount(1)
+        .then((res) => setUnreadCount(res.data.unreadCount))
+        .catch(console.error);
+
       // Join đúng room theo userId — backend lắng nghe 'join:farm'
       setTimeout(() => {
         socketService.joinFarm(user.id);
       }, 500);
+
+      // Lắng nghe socket alert:new toàn cục
+      socketService.onNewAlert((newAlert: any) => {
+        incrementUnread();
+      });
+
     } else {
       socketService.disconnect();
     }
-  }, [user, token]);
+
+    return () => {
+      // Cleanup listener khi unmount hoặc đăng xuất
+      socketService.offNewAlert(() => {});
+    };
+  }, [user, token, incrementUnread, setUnreadCount]);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {

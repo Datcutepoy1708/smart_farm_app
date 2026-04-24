@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../constants/config';
 import { alertApi } from '../../services/api';
 import socketService from '../../services/socket';
+import { useAlertStore } from '../../store/alertStore';
 
 const timeAgo = (dateInput: string | Date) => {
   const date = new Date(dateInput);
@@ -46,7 +47,8 @@ const AlertScreen = () => {
   const navigation = useNavigation();
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [alerts, setAlerts] = useState<AlertData[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const unreadCount = useAlertStore((state) => state.unreadCount);
+  const setUnreadCount = useAlertStore((state) => state.setUnreadCount);
   const [loading, setLoading] = useState(true);
 
   // Hardcode barnId = 1 temporarily as described in requirements
@@ -55,8 +57,8 @@ const AlertScreen = () => {
   useEffect(() => {
     fetchAlerts();
 
-    // Listen for new alerts via socket
-    socketService.onNewAlert((newAlert: any) => {
+    // Listen for new alerts via socket to update the list in real-time
+    const handleNewAlert = (newAlert: any) => {
       if (newAlert.barnId === barnId || newAlert.barn_id === barnId) {
         setAlerts((prev) => [
           {
@@ -70,25 +72,23 @@ const AlertScreen = () => {
           },
           ...prev,
         ]);
-        setUnreadCount((prev) => prev + 1);
+        // Note: unreadCount is automatically incremented in AppNavigator's global listener
       }
-    });
+    };
+
+    socketService.onNewAlert(handleNewAlert);
 
     return () => {
-      // Need to cast to any since we changed the payload interface
-      socketService.offNewAlert(() => {}); 
+      socketService.offNewAlert(handleNewAlert); 
     };
   }, []);
 
   const fetchAlerts = async () => {
     try {
       setLoading(true);
-      const [alertsRes, unreadRes] = await Promise.all([
-        alertApi.getAll(barnId),
-        alertApi.getUnreadCount(barnId),
-      ]);
+      const alertsRes = await alertApi.getAll(barnId);
       setAlerts(alertsRes.data);
-      setUnreadCount(unreadRes.data.unreadCount);
+      // unreadCount is already fetched globally in AppNavigator
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
     } finally {
@@ -100,6 +100,9 @@ const AlertScreen = () => {
     if (type === 'high_temp') return { name: 'thermostat', color: COLORS.danger };
     if (type === 'low_temp') return { name: 'ac-unit', color: COLORS.warning };
     if (type === 'high_humidity') return { name: 'water-drop', color: COLORS.warning };
+    if (type === 'fire') return { name: 'local-fire-department', color: COLORS.danger };
+    if (type === 'toxic_gas') return { name: 'air', color: COLORS.danger };
+    if (type === 'feed_insufficient') return { name: 'restaurant', color: COLORS.warning };
 
     switch (severity) {
       case 'critical':
@@ -133,7 +136,7 @@ const AlertScreen = () => {
       setAlerts((prev) =>
         prev.map((a) => (a.id === id ? { ...a, isRead: true } : a))
       );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      setUnreadCount(Math.max(0, unreadCount - 1));
     } catch (error) {
       console.error('Failed to mark read:', error);
     }
@@ -218,7 +221,7 @@ const AlertScreen = () => {
                 onPress={() => handleAlertPress(alert)}
               >
                 <View style={styles.alertIcon}>
-                  <Icon name={icon.name} size={24} color={icon.color} />
+                  <Icon name={icon.name as any} size={24} color={icon.color} />
                 </View>
                 <View style={styles.alertContent}>
                   <View style={styles.alertHeader}>
