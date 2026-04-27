@@ -56,7 +56,8 @@ export const barnApi = {
 // Devices APIs
 export const deviceApi = {
   getBarnDevices: (barnId: number) => api.get(`/barns/${barnId}/devices`),
-  control: (data: { deviceId: number; action: string }) => api.post(`/devices/${data.deviceId}/control`, { action: data.action }),
+  control: ({ deviceId, ...body }: { deviceId: number; action: string; amount?: number; duration?: number }) => 
+    api.post(`/devices/${deviceId}/control`, body),
   getLogs: (deviceId: number) => api.get(`/devices/${deviceId}/logs`),
 };
 

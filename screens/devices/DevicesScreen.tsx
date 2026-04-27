@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/Ionicons';
@@ -18,16 +19,9 @@ import io, { Socket } from 'socket.io-client';
 
 import { COLORS, SOCKET_URL } from '../../constants/config';
 import { deviceApi } from '../../services/api';
-
-interface BarnDevice {
-  id: number;
-  barnId: number;
-  name: string;
-  deviceType: 'feeder' | 'water' | 'fan' | 'heater' | 'washer' | 'door';
-  mqttTopic: string;
-  currentStatus: 'ON' | 'OFF';
-  isActive: boolean;
-}
+import { BarnDevice } from '../../types/device';
+import FeederCard from '../../components/devices/FeederCard';
+import ConveyorCard from '../../components/devices/ConveyorCard';
 
 const DevicesScreen = () => {
   const navigation = useNavigation();
@@ -37,6 +31,7 @@ const DevicesScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'ON' | 'OFF'>('ALL');
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [setupDeviceId, setSetupDeviceId] = useState<number | null>(null);
 
   // Assuming user ID is 1 for the websocket room as specified in backend
   const userId = 1;
@@ -112,13 +107,34 @@ const DevicesScreen = () => {
       case 'heater': return 'sunny';
       case 'washer': return 'sparkles';
       case 'door': return 'log-in-outline';
+      case 'light': return 'bulb';
+      case 'conveyor': return 'sync';
       default: return 'hardware-chip';
     }
   };
 
-  const toggleDevice = async (device: BarnDevice) => {
+  const toggleDevice = async (device: BarnDevice, specificValue?: number) => {
     const previousStatus = device.currentStatus;
     const newStatus = previousStatus === 'ON' ? 'OFF' : 'ON';
+
+    let targetAmount: number | undefined;
+    let targetDuration: number | undefined;
+
+    if (device.deviceType === 'feeder' && newStatus === 'ON') {
+      targetAmount = specificValue;
+      if (specificValue && specificValue <= 0) {
+        Alert.alert('Lỗi', 'Vui lòng nhập số lượng (kg) hợp lệ');
+        return;
+      }
+    }
+
+    if (device.deviceType === 'conveyor' && newStatus === 'ON') {
+      targetDuration = specificValue;
+      if (specificValue && specificValue <= 0) {
+        Alert.alert('Lỗi', 'Vui lòng nhập thời gian (giây) hợp lệ');
+        return;
+      }
+    }
 
     // Optimistic Update
     setDevices((prev) =>
@@ -129,10 +145,12 @@ const DevicesScreen = () => {
       const response = await deviceApi.control({
         deviceId: device.id,
         action: newStatus,
+        amount: targetAmount,
+        duration: targetDuration,
       });
 
       if (!response.data.success) {
-        throw new Error('API reported failure');
+        throw new Error('API returned failure');
       }
     } catch (err) {
       console.error('Toggle error:', err);
@@ -191,6 +209,8 @@ const DevicesScreen = () => {
     );
   }
 
+  const activeFeederConveyors = devices.filter(d => ['feeder', 'conveyor'].includes(d.deviceType));
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -200,6 +220,9 @@ const DevicesScreen = () => {
             <Text style={styles.badgeText}>{activeCount} đang bật</Text>
           </View>
         </View>
+        <TouchableOpacity onPress={() => setSetupDeviceId(1)} style={styles.settingsIcon}>
+          <Icon name="ellipsis-horizontal" size={24} color={COLORS.text} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.filterContainer}>
@@ -246,6 +269,42 @@ const DevicesScreen = () => {
           </View>
         }
       />
+
+      {/* Setup Modal */}
+      {setupDeviceId !== null && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cài đặt Thiết bị Tự động</Text>
+              <TouchableOpacity onPress={() => setSetupDeviceId(null)}>
+                <Icon name="close" size={24} color={COLORS.gray} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScroll}>
+              {activeFeederConveyors.length === 0 ? (
+                <Text style={styles.emptyText}>Chưa có Máng ăn hoặc Băng tải nào được thêm.</Text>
+              ) : (
+                <>
+                  {activeFeederConveyors.filter(d => d.deviceType === 'feeder').map(d => (
+                    <FeederCard 
+                      key={d.id} 
+                      device={d} 
+                      onToggle={(amount) => toggleDevice(d, amount)} 
+                    />
+                  ))}
+                  {activeFeederConveyors.filter(d => d.deviceType === 'conveyor').map(d => (
+                    <ConveyorCard 
+                      key={d.id} 
+                      device={d} 
+                      onToggle={(duration) => toggleDevice(d, duration)} 
+                    />
+                  ))}
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -277,6 +336,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: 16,
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
@@ -391,6 +453,40 @@ const styles = StyleSheet.create({
   emptyText: {
     color: COLORS.gray,
     fontSize: 16,
+  },
+  settingsIcon: {
+    padding: 4,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    padding: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.lightGray,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  modalScroll: {
+    flex: 1,
   },
 });
 
