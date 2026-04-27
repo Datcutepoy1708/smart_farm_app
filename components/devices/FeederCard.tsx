@@ -2,15 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { COLORS } from '../../constants/config';
 
-interface BarnDevice {
-  id: number;
-  barnId: number;
-  name: string;
-  deviceType: string;
-  mqttTopic: string;
-  currentStatus: 'ON' | 'OFF';
-  isActive: boolean;
-}
+import { BarnDevice } from '../../types';
 
 interface FeederCardProps {
   device: BarnDevice;

@@ -46,7 +46,7 @@ export interface BarnDevice {
   id: number;
   barnId: number;
   name: string;
-  deviceType: DeviceType;
+  deviceType: string;
   mqttTopic?: string;
   currentStatus: 'ON' | 'OFF';
   isActive: boolean;

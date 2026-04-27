@@ -19,7 +19,7 @@ import io, { Socket } from 'socket.io-client';
 
 import { COLORS, SOCKET_URL } from '../../constants/config';
 import { deviceApi } from '../../services/api';
-import { BarnDevice } from '../../types/device';
+import { BarnDevice } from '../../types';
 import FeederCard from '../../components/devices/FeederCard';
 import ConveyorCard from '../../components/devices/ConveyorCard';
 
@@ -100,15 +100,14 @@ const DevicesScreen = () => {
   });
 
   const getDeviceIcon = (type: string) => {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case 'feeder': return 'restaurant';
       case 'water': return 'water';
       case 'fan': return 'aperture';
       case 'heater': return 'sunny';
-      case 'washer': return 'sparkles';
       case 'door': return 'log-in-outline';
       case 'light': return 'bulb';
-      case 'conveyor': return 'sync';
+      case 'washer': return 'sync'; // Using washer as conveyor
       default: return 'hardware-chip';
     }
   };
@@ -120,6 +119,14 @@ const DevicesScreen = () => {
     let targetAmount: number | undefined;
     let targetDuration: number | undefined;
 
+    // Intercept Feeder/Washer ON actions to show setup card
+    if ((device.deviceType === 'feeder' || device.deviceType === 'washer') && newStatus === 'ON') {
+      if (setupDeviceId !== device.id && !specificValue) {
+        setSetupDeviceId(device.id);
+        return;
+      }
+    }
+
     if (device.deviceType === 'feeder' && newStatus === 'ON') {
       targetAmount = specificValue;
       if (specificValue && specificValue <= 0) {
@@ -128,7 +135,7 @@ const DevicesScreen = () => {
       }
     }
 
-    if (device.deviceType === 'conveyor' && newStatus === 'ON') {
+    if (device.deviceType === 'washer' && newStatus === 'ON') {
       targetDuration = specificValue;
       if (specificValue && specificValue <= 0) {
         Alert.alert('Lỗi', 'Vui lòng nhập thời gian (giây) hợp lệ');
@@ -209,7 +216,7 @@ const DevicesScreen = () => {
     );
   }
 
-  const activeFeederConveyors = devices.filter(d => ['feeder', 'conveyor'].includes(d.deviceType));
+  const activeFeederConveyors = devices.filter(d => ['feeder', 'washer'].includes(d.deviceType.toLowerCase()));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -285,14 +292,14 @@ const DevicesScreen = () => {
                 <Text style={styles.emptyText}>Chưa có Máng ăn hoặc Băng tải nào được thêm.</Text>
               ) : (
                 <>
-                  {activeFeederConveyors.filter(d => d.deviceType === 'feeder').map(d => (
+                  {activeFeederConveyors.filter(d => d.deviceType.toLowerCase() === 'feeder').map(d => (
                     <FeederCard 
                       key={d.id} 
                       device={d} 
                       onToggle={(amount) => toggleDevice(d, amount)} 
                     />
                   ))}
-                  {activeFeederConveyors.filter(d => d.deviceType === 'conveyor').map(d => (
+                  {activeFeederConveyors.filter(d => d.deviceType.toLowerCase() === 'washer').map(d => (
                     <ConveyorCard 
                       key={d.id} 
                       device={d} 
