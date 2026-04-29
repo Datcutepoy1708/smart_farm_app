@@ -14,7 +14,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { feedApi, weightLogApi } from '../../services/api';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { feedApi, weightLogApi, farmAiApi } from '../../services/api';
 
 interface NutritionData {
   stage: 'starter' | 'grower' | 'finisher';
@@ -72,6 +74,14 @@ export default function NutritionScreen() {
   const [sampleCountInput, setSampleCountInput] = useState('10');
   const [savingWeight, setSavingWeight] = useState(false);
 
+  // Cám đang sử dụng
+  const [activeFeed, setActiveFeed] = useState<any>(null);
+
+  // Phân tích cám
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analysisModalVisible, setAnalysisModalVisible] = useState(false);
+
   const barnId = 1;
 
   const fetchNutritionData = useCallback(async () => {
@@ -79,9 +89,10 @@ export default function NutritionScreen() {
       setLoading(true);
       setError(null);
 
-      const [nutritionRes, weightLogsRes] = await Promise.all([
+      const [nutritionRes, weightLogsRes, activeFeedRes] = await Promise.all([
         feedApi.calculate(barnId),
         weightLogApi.getHistory(barnId, 5),
+        feedApi.getActiveProduct(barnId),
       ]);
 
       const rawData = nutritionRes.data?.data || nutritionRes.data;
@@ -109,6 +120,9 @@ export default function NutritionScreen() {
 
       const logsRaw = weightLogsRes.data?.data || weightLogsRes.data || [];
       setWeightLogs(Array.isArray(logsRaw) ? logsRaw : []);
+
+      const activeProduct = activeFeedRes.data?.data || null;
+      setActiveFeed(activeProduct);
     } catch (err) {
       console.error('Lỗi khi tải dữ liệu Nutrition:', err);
       setError('Không thể lấy chỉ số dinh dưỡng lúc này. Thử lại sau.');
@@ -167,7 +181,63 @@ export default function NutritionScreen() {
       ],
     );
   };
+  const handleScanFeed = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Lỗi', 'Cần quyền truy cập thư viện ảnh để quét.');
+        return;
+      }
 
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      setIsAnalyzing(true);
+      const uri = result.assets[0].uri;
+
+      // Nén ảnh để giảm dung lượng base64
+      const manipResult = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 800 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      if (!manipResult.base64) {
+        throw new Error('Không thể chuyển đổi ảnh');
+      }
+
+      const response = await farmAiApi.analyzeFeed(barnId, `data:image/jpeg;base64,${manipResult.base64}`);
+      if (response.data.success && response.data.data) {
+        setAnalysisResult(response.data.data);
+        setAnalysisModalVisible(true);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Lỗi', 'Không thể phân tích ảnh lúc này. Vui lòng thử lại sau.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleApplyFeedProduct = async (productId: number) => {
+    try {
+      setLoading(true);
+      setAnalysisModalVisible(false);
+      await feedApi.applyProduct(barnId, productId);
+      await fetchNutritionData();
+      Alert.alert('✅ Thành công', 'Đã áp dụng loại cám mới và cập nhật lượng ăn trong ngày!');
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Lỗi', 'Không thể áp dụng loại cám này.');
+    } finally {
+      setLoading(false);
+    }
+  };
   const renderProgressBar = (label: string, valueStr: string, percentage: number) => {
     const clampedPct = Math.min(Math.max(percentage, 0), 100);
     return (
@@ -259,7 +329,77 @@ export default function NutritionScreen() {
     </Modal>
   );
 
-  if (loading) {
+  const renderFeedAnalysisModal = () => {
+    if (!analysisResult) return null;
+    const { analysis, id: productId } = analysisResult;
+
+    return (
+      <Modal visible={analysisModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="sparkles" size={32} color={COLORS.orange} />
+              <Text style={styles.modalTitle}>Phân tích thành công</Text>
+            </View>
+
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.primary, marginBottom: 8, textAlign: 'center' }}>
+              {analysis.name_suggestion}
+            </Text>
+
+            <View style={{ backgroundColor: '#F9F9F9', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>Bảng thành phần:</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ color: COLORS.textSecondary }}>Đạm (Protein):</Text>
+                <Text style={{ fontWeight: 'bold' }}>{analysis.protein_pct}%</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ color: COLORS.textSecondary }}>Năng lượng:</Text>
+                <Text style={{ fontWeight: 'bold' }}>{analysis.energy_kcal} Kcal</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ color: COLORS.textSecondary }}>Canxi:</Text>
+                <Text style={{ fontWeight: 'bold' }}>{analysis.calcium_pct}%</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ color: COLORS.textSecondary }}>Xơ thô:</Text>
+                <Text style={{ fontWeight: 'bold' }}>{analysis.fiber_pct}%</Text>
+              </View>
+            </View>
+
+            <View style={{ backgroundColor: '#E8F5E9', borderRadius: 8, padding: 12, marginBottom: 20 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.primary, marginBottom: 4 }}>AI Đề xuất:</Text>
+              <Text style={{ fontSize: 13, color: COLORS.text, lineHeight: 20 }}>
+                {analysis.explanation}
+              </Text>
+              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#C8E6C9', paddingTop: 8, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>Lượng ăn / ngày / con</Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: COLORS.primary }}>
+                  {analysis.recommendedGramPerChicken}g
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setAnalysisModalVisible(false)}
+              >
+                <Text style={styles.modalBtnCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnSave, { backgroundColor: COLORS.orange }]}
+                onPress={() => handleApplyFeedProduct(productId)}
+              >
+                <Text style={styles.modalBtnSaveText}>Áp dụng cám này</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  if (loading || isAnalyzing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -271,7 +411,9 @@ export default function NutritionScreen() {
         </View>
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Đang tính toán khẩu phần...</Text>
+          <Text style={styles.loadingText}>
+            {isAnalyzing ? 'Đang phân tích bao bì bằng AI...' : 'Đang tính toán khẩu phần...'}
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -306,6 +448,7 @@ export default function NutritionScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {renderWeightModal()}
+      {renderFeedAnalysisModal()}
 
       {/* Header */}
       <View style={styles.header}>
@@ -319,6 +462,33 @@ export default function NutritionScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+        {/* Nút Quét AI Mới */}
+        <TouchableOpacity style={styles.scanAiBtn} onPress={handleScanFeed}>
+          <View style={styles.scanAiBtnContent}>
+            <Ionicons name="scan-outline" size={24} color={COLORS.white} />
+            <Text style={styles.scanAiBtnText}>Quét bao bì thức ăn (AI)</Text>
+          </View>
+          <Ionicons name="sparkles" size={20} color="#FFF176" />
+        </TouchableOpacity>
+
+        {/* Card Đang sử dụng nếu có activeFeed */}
+        {activeFeed && (
+          <View style={[styles.card, { borderColor: COLORS.orange, borderWidth: 1 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 }}>
+              <Ionicons name="leaf" size={18} color={COLORS.orange} />
+              <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.orange }}>
+                Đang sử dụng
+              </Text>
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 }}>
+              {activeFeed.name}
+            </Text>
+            <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
+              Đạm: {activeFeed.proteinPct}% • Năng lượng: {activeFeed.energyKcalPerKg} Kcal
+            </Text>
+          </View>
+        )}
 
         {/* Card 1: Thông tin đàn gà + nút cân nặng */}
         <View style={styles.card}>
@@ -418,12 +588,25 @@ export default function NutritionScreen() {
 
         {/* Card 3: Thành phần dinh dưỡng */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Tiêu chuẩn ({data.stage.toUpperCase()})</Text>
+          <Text style={styles.cardTitle}>
+            {activeFeed ? `Thành phần Cám Hiện Tại` : `Tiêu chuẩn (${data.stage.toUpperCase()})`}
+          </Text>
 
-          {renderProgressBar('Protein', `${data.standard.proteinPct}%`, (data.standard.proteinPct / 30) * 100)}
-          {renderProgressBar('Năng lượng', `${data.standard.energyKcalPerKg} kcal/kg`, (data.standard.energyKcalPerKg / 3500) * 100)}
-          {renderProgressBar('Tỷ lệ thức ăn', `${data.standard.feedRatio.toFixed(2)} g/g`, (data.standard.feedRatio / 0.4) * 100)}
-          {renderProgressBar('Tỷ lệ nước', `${data.standard.waterRatio.toFixed(1)} L/con`, (data.standard.waterRatio / 3) * 100)}
+          {activeFeed ? (
+            <>
+              {renderProgressBar('Protein', `${activeFeed.proteinPct}%`, (activeFeed.proteinPct / 30) * 100)}
+              {renderProgressBar('Năng lượng', `${activeFeed.energyKcalPerKg} kcal/kg`, (activeFeed.energyKcalPerKg / 3500) * 100)}
+              {activeFeed.calciumPct > 0 && renderProgressBar('Canxi', `${activeFeed.calciumPct}%`, (activeFeed.calciumPct / 5) * 100)}
+              {activeFeed.fiberPct > 0 && renderProgressBar('Xơ thô', `${activeFeed.fiberPct}%`, (activeFeed.fiberPct / 10) * 100)}
+            </>
+          ) : (
+            <>
+              {renderProgressBar('Protein', `${data.standard.proteinPct}%`, (data.standard.proteinPct / 30) * 100)}
+              {renderProgressBar('Năng lượng', `${data.standard.energyKcalPerKg} kcal/kg`, (data.standard.energyKcalPerKg / 3500) * 100)}
+              {renderProgressBar('Tỷ lệ thức ăn', `${data.standard.feedRatio.toFixed(2)} g/g`, (data.standard.feedRatio / 0.4) * 100)}
+              {renderProgressBar('Tỷ lệ nước', `${data.standard.waterRatio.toFixed(1)} L/con`, (data.standard.waterRatio / 3) * 100)}
+            </>
+          )}
         </View>
 
         {/* Card 4: So sánh 3 giai đoạn */}
@@ -671,4 +854,25 @@ const styles = StyleSheet.create({
   modalBtnCancelText: { fontWeight: '600', fontSize: 15, color: '#555' },
   modalBtnSave: { backgroundColor: COLORS.primary },
   modalBtnSaveText: { fontWeight: '600', fontSize: 15, color: COLORS.white },
+  
+  // Nút AI
+  scanAiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  scanAiBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  scanAiBtnText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });

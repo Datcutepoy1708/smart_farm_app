@@ -74,6 +74,8 @@ export const feedApi = {
   calculate: (barnId: number) => api.get(`/barns/${barnId}/feed/calculate`),
   getToday: (barnId: number) => api.get(`/barns/${barnId}/feed/today`),
   getHistory: (barnId: number, days: number = 7) => api.get(`/barns/${barnId}/feed/history?days=${days}`),
+  getActiveProduct: (barnId: number) => api.get(`/barns/${barnId}/feed/products/active`),
+  applyProduct: (barnId: number, productId: number) => api.post(`/barns/${barnId}/feed/products/${productId}/apply`),
 };
 
 // Weight Log APIs – ghi cân nặng mẫu, cập nhật avgWeightKg của flock
@@ -119,6 +121,7 @@ export const noteApi = {
 export const farmAiApi = {
   getChatHistory: (barnId: number, limit: number = 20) => api.get(`/farm-ai/history?barn_id=${barnId}&limit=${limit}`),
   sendMessage: (data: { barnId: number; message: string }) => api.post('/farm-ai/chat', data),
+  analyzeFeed: (barnId: number, base64Image: string) => api.post('/farm-ai/analyze-feed', { barnId, image: base64Image }),
 };
 
 // Notification APIs
