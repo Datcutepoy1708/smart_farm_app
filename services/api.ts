@@ -9,6 +9,12 @@ const api = axios.create({
   timeout: 10000,
 });
 
+// Separate axios instance with 60s timeout for AI image analysis
+const aiApi = axios.create({
+  baseURL: API_URL,
+  timeout: 60000,
+});
+
 // Interceptor: Add JWT token to Authorization header
 api.interceptors.request.use(
   (config) => {
@@ -29,6 +35,31 @@ api.interceptors.response.use(
       const { logout } = useAuthStore.getState();
       await logout();
       // Reset về màn hình Auth (Login)
+      if (navigationRef.isReady()) {
+        navigationRef.reset({ index: 0, routes: [{ name: 'Auth' }] });
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Apply same interceptors to aiApi
+aiApi.interceptors.request.use(
+  (config) => {
+    const token = useAuthStore.getState().token;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+aiApi.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const { logout } = useAuthStore.getState();
+      await logout();
       if (navigationRef.isReady()) {
         navigationRef.reset({ index: 0, routes: [{ name: 'Auth' }] });
       }
@@ -121,7 +152,8 @@ export const noteApi = {
 export const farmAiApi = {
   getChatHistory: (barnId: number, limit: number = 20) => api.get(`/farm-ai/history?barn_id=${barnId}&limit=${limit}`),
   sendMessage: (data: { barnId: number; message: string }) => api.post('/farm-ai/chat', data),
-  analyzeFeed: (barnId: number, base64Image: string) => api.post('/farm-ai/analyze-feed', { barnId, image: base64Image }),
+  // Use aiApi (60s timeout) for image analysis to avoid premature timeout
+  analyzeFeed: (barnId: number, base64Image: string) => aiApi.post('/farm-ai/analyze-feed', { barnId, image: base64Image }),
 };
 
 // Notification APIs
