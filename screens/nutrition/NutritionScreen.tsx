@@ -9,8 +9,9 @@ import {
   TouchableOpacity,
   Platform,
   Modal,
-  TextInput,
   Alert,
+  Image,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -481,12 +482,28 @@ export default function NutritionScreen() {
                 Đang sử dụng
               </Text>
             </View>
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 }}>
-              {activeFeed.name}
-            </Text>
-            <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
-              Đạm: {activeFeed.proteinPct}% • Năng lượng: {activeFeed.energyKcalPerKg} Kcal
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              {activeFeed.imageUrl && (
+                <Image
+                  source={{ uri: activeFeed.imageUrl }}
+                  style={{ width: 60, height: 60, borderRadius: 8, marginRight: 12, backgroundColor: '#eee' }}
+                  resizeMode="cover"
+                />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 }}>
+                  {activeFeed.name}
+                </Text>
+                <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
+                  Đạm: {activeFeed.proteinPct}% • Năng lượng: {activeFeed.energyKcalPerKg} Kcal
+                </Text>
+                {activeFeed.fiberPct > 0 && (
+                   <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
+                     Xơ thô: {activeFeed.fiberPct}%
+                   </Text>
+                )}
+              </View>
+            </View>
           </View>
         )}
 
