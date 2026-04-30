@@ -213,12 +213,22 @@ export default function NutritionScreen() {
       }
 
       const response = await farmAiApi.analyzeFeed(barnId, `data:image/jpeg;base64,${manipResult.base64}`);
+      console.log('[AI] Response status:', response.status);
+      console.log('[AI] Response data:', JSON.stringify(response.data).substring(0, 500));
+      
       if (response.data.success && response.data.data) {
         setAnalysisResult(response.data.data);
         setAnalysisModalVisible(true);
+      } else if (response.data) {
+        // Fallback: backend returned data but not in expected format
+        setAnalysisResult(response.data);
+        setAnalysisModalVisible(true);
       }
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('[AI] Error code:', error?.code);
+      console.error('[AI] Error message:', error?.message);
+      console.error('[AI] Response status:', error?.response?.status);
+      console.error('[AI] Response data:', JSON.stringify(error?.response?.data));
       Alert.alert('Lỗi', 'Không thể phân tích ảnh lúc này. Vui lòng thử lại sau.');
     } finally {
       setIsAnalyzing(false);
