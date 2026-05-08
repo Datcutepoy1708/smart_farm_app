@@ -58,60 +58,86 @@ const AppNavigator = () => {
   React.useEffect(() => {
     if (user && token) {
       socketService.connect(token);
-      
+
       // Lấy số thông báo chưa đọc (barnId = 1)
-      alertApi.getUnreadCount(1)
-        .then((res) => setUnreadCount(res.data.unreadCount))
+      alertApi.getAll(1)
+        .then((res) => {
+          const alerts: any[] = res.data?.data ?? res.data ?? [];
+          const unread = alerts.filter((a: any) => !a.isRead).length;
+          setUnreadCount(unread);
+        })
         .catch(console.error);
 
-      // Đăng ký nhận thông báo đẩy qua Expo khi app khởi động (background/lockscreen)
       registerForPushNotifications().catch(console.warn);
 
-      // Join đúng room theo userId — backend lắng nghe 'join:farm'
-      setTimeout(() => {
-        socketService.joinFarm(user.id);
-      }, 500);
+      setTimeout(() => { socketService.joinFarm(user.id); }, 500);
 
-      // Lắng nghe socket alert:new toàn cục
-      socketService.onNewAlert(async (newAlert: any) => {
-        incrementUnread();
-        
+      // ─── POLLING: Kiểm tra cảnh báo mới mỗi 15 giây ─────────────────────
+      // Đây là cách đáng tin cậy nhất, không phụ thuộc socket hay push token
+      let lastAlertId = 0; // Lưu ID cảnh báo cuối cùng đã xử lý
+
+      const pollAlerts = async () => {
         try {
-          // Bắn thông báo Local ngay lập tức
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: newAlert.alertType === 'fire' ? '🔥 CẢNH BÁO CHÁY KHẨN CẤP' 
-                   : newAlert.alertType === 'toxic_gas' ? '☠️ CẢNH BÁO KHÍ ĐỘC'
-                   : newAlert.alertType === 'feed_error' || newAlert.alertType === 'feed_insufficient' ? '⚠️ CẢNH BÁO CHO ĂN'
-                   : '⚠️ CẢNH BÁO HỆ THỐNG',
-              body: newAlert.message || 'Phát hiện bất thường tại chuồng nuôi!',
-              data: { type: 'alert', alertId: newAlert.id },
-              sound: true,
-            },
-            trigger: null, // Kích hoạt ngay lập tức
-          });
-        } catch (err) {
-          console.error('Lỗi hiển thị thông báo:', err);
+          const res = await alertApi.getAll(1);
+          const alerts: any[] = res.data?.data ?? res.data ?? [];
+
+          // Lấy cảnh báo mới nhất chưa đọc
+          const unread = alerts.filter((a: any) => !a.isRead);
+          setUnreadCount(unread.length);
+
+          // Tìm cảnh báo mới nhất (ID lớn nhất) chưa được xử lý
+          const newestAlert = alerts.length > 0 ? alerts[0] : null; // API trả về DESC
+          if (newestAlert && newestAlert.id > lastAlertId && !newestAlert.isRead) {
+            lastAlertId = newestAlert.id;
+
+            const isCritical = ['fire', 'toxic_gas', 'high_temp', 'feed_error', 'feed_insufficient'].includes(newestAlert.alertType);
+            if (isCritical) {
+              // 1) Hiện hộp thoại trực tiếp (khi app đang mở)
+              Alert.alert(
+                newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
+                : newestAlert.alertType === 'toxic_gas' ? '☠️ KHI DOC'
+                : newestAlert.alertType === 'high_temp' ? '🌡️ NHIET DO CAO'
+                : '⚠️ CANH BAO CHO AN',
+                newestAlert.message || 'Co bat thuong tai chuong!'
+              );
+
+              // 2) Gửi local notification (hiện trên thanh thông báo)
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
+                       : newestAlert.alertType === 'toxic_gas' ? '☠️ KHI DOC'
+                       : newestAlert.alertType === 'high_temp' ? '🌡️ NHIET DO CAO'
+                       : '⚠️ CANH BAO CHO AN',
+                  body: newestAlert.message || 'Co bat thuong tai chuong!',
+                  sound: true,
+                  priority: Notifications.AndroidNotificationPriority.MAX,
+                },
+                trigger: null,
+              });
+            }
+          }
+        } catch (_) {
+          // Bỏ qua lỗi mạng để polling tiếp tục
         }
-        
-        // Hiển thị hộp thoại trực tiếp trên màn hình (bảo hiểm kép)
-        Alert.alert(
-          newAlert.alertType === 'fire' ? '🔥 CHÁY KHẨN CẤP'
-          : newAlert.alertType === 'toxic_gas' ? '☠️ KHÍ ĐỘC'
-          : newAlert.alertType === 'feed_error' || newAlert.alertType === 'feed_insufficient' ? '⚠️ KẸT/HẾT CÁM'
-          : '⚠️ CẢNH BÁO',
-          newAlert.message || 'Có bất thường tại chuồng!'
-        );
+      };
+
+      // Chạy lần đầu ngay lập tức rồi cứ 15 giây một lần
+      pollAlerts();
+      const intervalId = setInterval(pollAlerts, 15000);
+
+      // Socket listener (bổ sung thêm, không phải chính)
+      socketService.onNewAlert((newAlert: any) => {
+        incrementUnread();
       });
 
+      return () => {
+        clearInterval(intervalId);
+        socketService.offNewAlert(() => {});
+      };
     } else {
       socketService.disconnect();
+      return () => {};
     }
-
-    return () => {
-      // Cleanup listener khi unmount hoặc đăng xuất
-      socketService.offNewAlert(() => {});
-    };
   }, [user, token, incrementUnread, setUnreadCount]);
 
   React.useEffect(() => {
