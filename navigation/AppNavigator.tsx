@@ -76,18 +76,30 @@ const AppNavigator = () => {
       socketService.onNewAlert(async (newAlert: any) => {
         incrementUnread();
         
-        // Bắn thông báo Local ngay lập tức (để đảm bảo luôn hiện như ghi chú)
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: newAlert.type === 'fire' ? '🔥 CẢNH BÁO CHÁY KHẨN CẤP' 
-                 : newAlert.type === 'toxic_gas' ? '☠️ CẢNH BÁO KHÍ ĐỘC'
-                 : newAlert.type === 'feed_error' || newAlert.type === 'feed_insufficient' ? '⚠️ CẢNH BÁO CHO ĂN'
-                 : '⚠️ CẢNH BÁO HỆ THỐNG',
-            body: newAlert.message || 'Phát hiện bất thường tại chuồng nuôi!',
-            data: { type: 'alert', alertId: newAlert.id },
-            sound: true,
-          },
-          trigger: null, // Kích hoạt ngay lập tức
+        try {
+          // Bắn thông báo Local ngay lập tức
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: newAlert.alertType === 'fire' ? '🔥 CẢNH BÁO CHÁY KHẨN CẤP' 
+                   : newAlert.alertType === 'toxic_gas' ? '☠️ CẢNH BÁO KHÍ ĐỘC'
+                   : newAlert.alertType === 'feed_error' || newAlert.alertType === 'feed_insufficient' ? '⚠️ CẢNH BÁO CHO ĂN'
+                   : '⚠️ CẢNH BÁO HỆ THỐNG',
+              body: newAlert.message || 'Phát hiện bất thường tại chuồng nuôi!',
+              data: { type: 'alert', alertId: newAlert.id },
+              sound: true,
+            },
+            trigger: null, // Kích hoạt ngay lập tức
+          });
+        } catch (err) {
+          console.error('Lỗi hiển thị thông báo:', err);
+        }
+        
+        // Hiển thị thêm hộp thoại trực tiếp trên màn hình (để đảm bảo không bị sót)
+        import('react-native').then(({ Alert }) => {
+          Alert.alert(
+            newAlert.alertType === 'fire' ? '🔥 CHÁY KHẨN CẤP' : '⚠️ CẢNH BÁO',
+            newAlert.message || 'Có bất thường tại chuồng!'
+          );
         });
       });
 
