@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import api from './api';
 
@@ -10,7 +11,7 @@ import api from './api';
 export async function registerForPushNotifications(): Promise<string | null> {
   // Chỉ chạy trên thiết bị vật lý
   if (!Device.isDevice) {
-    console.log('Push Notifications chỉ hoạt động trên thiết bị thật.');
+    console.log('Push Notifications chi hoat dong tren thiet bi that.');
     return null;
   }
 
@@ -24,7 +25,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   if (finalStatus !== 'granted') {
-    console.log('Không được cấp quyền push notification.');
+    console.log('Khong duoc cap quyen push notification.');
     return null;
   }
 
@@ -36,11 +37,28 @@ export async function registerForPushNotifications(): Promise<string | null> {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#FF231F7C',
     });
+
+    // Kênh riêng cho cảnh báo khẩn cấp (cháy, khí độc)
+    await Notifications.setNotificationChannelAsync('alerts', {
+      name: 'Canh Bao Khan Cap',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 500, 250, 500],
+      lightColor: '#FF0000',
+      sound: 'default',
+      enableVibrate: true,
+    });
   }
 
-  // Lấy Expo Push Token
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  // Lấy Expo Push Token - BẮT BUỘC phải có projectId từ SDK 49+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) {
+    console.warn('[Push] Khong tim thay projectId trong app.json!');
+    return null;
+  }
+
+  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
   const token = tokenData.data;
+  console.log('[Push] Token:', token);
 
   // Gửi token lên backend
   try {
@@ -48,9 +66,9 @@ export async function registerForPushNotifications(): Promise<string | null> {
       token,
       deviceName: Device.deviceName ?? 'Unknown Device',
     });
-    console.log('✅ Đã đăng ký push token:', token);
+    console.log('[Push] Da dang ky push token thanh cong');
   } catch (err) {
-    console.warn('Không thể đăng ký push token:', err);
+    console.warn('[Push] Khong the dang ky push token:', err);
   }
 
   return token;
