@@ -73,26 +73,33 @@ const AppNavigator = () => {
       setTimeout(() => { socketService.joinFarm(user.id); }, 500);
 
       // ─── POLLING: Kiểm tra cảnh báo mới mỗi 15 giây ─────────────────────
-      // Đây là cách đáng tin cậy nhất, không phụ thuộc socket hay push token
-      let lastAlertId = 0; // Lưu ID cảnh báo cuối cùng đã xử lý
+      // lastAlertId = ID của cảnh báo mới nhất lúc khởi động app
+      // → Chỉ thông báo cho cảnh báo đến SAU khi app mở, không spam cảnh báo cũ
+      let lastAlertId = -1; // -1 = chưa khởi tạo
 
       const pollAlerts = async () => {
         try {
           const res = await alertApi.getAll(1);
           const alerts: any[] = res.data?.data ?? res.data ?? [];
 
-          // Lấy cảnh báo mới nhất chưa đọc
+          // Cập nhật badge số chưa đọc
           const unread = alerts.filter((a: any) => !a.isRead);
           setUnreadCount(unread.length);
 
-          // Tìm cảnh báo mới nhất (ID lớn nhất) chưa được xử lý
           const newestAlert = alerts.length > 0 ? alerts[0] : null; // API trả về DESC
+
+          // Lần đầu chạy: ghi nhận ID hiện tại, KHÔNG thông báo cảnh báo cũ
+          if (lastAlertId === -1) {
+            lastAlertId = newestAlert?.id ?? 0;
+            return;
+          }
+
+          // Lần sau: chỉ thông báo nếu có cảnh báo MỚI HƠN
           if (newestAlert && newestAlert.id > lastAlertId && !newestAlert.isRead) {
             lastAlertId = newestAlert.id;
 
             const isCritical = ['fire', 'toxic_gas', 'high_temp', 'feed_error', 'feed_insufficient'].includes(newestAlert.alertType);
             if (isCritical) {
-              // 1) Hiện hộp thoại trực tiếp (khi app đang mở)
               Alert.alert(
                 newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
                 : newestAlert.alertType === 'toxic_gas' ? '☠️ KHI DOC'
@@ -101,7 +108,6 @@ const AppNavigator = () => {
                 newestAlert.message || 'Co bat thuong tai chuong!'
               );
 
-              // 2) Gửi local notification (hiện trên thanh thông báo)
               await Notifications.scheduleNotificationAsync({
                 content: {
                   title: newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
@@ -121,8 +127,7 @@ const AppNavigator = () => {
         }
       };
 
-      // Chạy lần đầu ngay lập tức rồi cứ 15 giây một lần
-      pollAlerts();
+      pollAlerts(); // Lần đầu: chỉ lấy ID baseline, không thông báo
       const intervalId = setInterval(pollAlerts, 15000);
 
       // Socket listener (bổ sung thêm, không phải chính)
