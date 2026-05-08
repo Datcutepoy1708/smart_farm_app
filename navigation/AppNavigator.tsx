@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
@@ -11,6 +11,7 @@ import { socketService } from '../services/socket';
 import { alertApi } from '../services/api';
 import { useAlertStore } from '../store/alertStore';
 import { registerForPushNotifications } from '../services/notificationService';
+import { registerBackgroundAlertTask } from '../services/backgroundAlertTask';
 
 import LoginScreen        from '../screens/auth/LoginScreen';
 import RegisterScreen     from '../screens/auth/RegisterScreen';
@@ -70,6 +71,9 @@ const AppNavigator = () => {
 
       registerForPushNotifications().catch(console.warn);
 
+      // Đăng ký background task để nhận cảnh báo khi app đóng
+      registerBackgroundAlertTask().catch(console.warn);
+
       setTimeout(() => { socketService.joinFarm(user.id); }, 500);
 
       // ─── POLLING: Kiểm tra cảnh báo mới mỗi 15 giây ─────────────────────
@@ -100,14 +104,7 @@ const AppNavigator = () => {
 
             const isCritical = ['fire', 'toxic_gas', 'high_temp', 'feed_error', 'feed_insufficient'].includes(newestAlert.alertType);
             if (isCritical) {
-              Alert.alert(
-                newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
-                : newestAlert.alertType === 'toxic_gas' ? '☠️ KHI DOC'
-                : newestAlert.alertType === 'high_temp' ? '🌡️ NHIET DO CAO'
-                : '⚠️ CANH BAO CHO AN',
-                newestAlert.message || 'Co bat thuong tai chuong!'
-              );
-
+              // Chỉ dùng local notification, không hiện hộp thoại
               await Notifications.scheduleNotificationAsync({
                 content: {
                   title: newestAlert.alertType === 'fire' ? '🔥 CHAY KHAN CAP'
