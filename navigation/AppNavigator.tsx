@@ -73,8 +73,22 @@ const AppNavigator = () => {
       }, 500);
 
       // Lắng nghe socket alert:new toàn cục
-      socketService.onNewAlert((newAlert: any) => {
+      socketService.onNewAlert(async (newAlert: any) => {
         incrementUnread();
+        
+        // Bắn thông báo Local ngay lập tức (để đảm bảo luôn hiện như ghi chú)
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: newAlert.type === 'fire' ? '🔥 CẢNH BÁO CHÁY KHẨN CẤP' 
+                 : newAlert.type === 'toxic_gas' ? '☠️ CẢNH BÁO KHÍ ĐỘC'
+                 : newAlert.type === 'feed_error' || newAlert.type === 'feed_insufficient' ? '⚠️ CẢNH BÁO CHO ĂN'
+                 : '⚠️ CẢNH BÁO HỆ THỐNG',
+            body: newAlert.message || 'Phát hiện bất thường tại chuồng nuôi!',
+            data: { type: 'alert', alertId: newAlert.id },
+            sound: true,
+          },
+          trigger: null, // Kích hoạt ngay lập tức
+        });
       });
 
     } else {
