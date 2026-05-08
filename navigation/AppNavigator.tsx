@@ -11,7 +11,6 @@ import { socketService } from '../services/socket';
 import { alertApi } from '../services/api';
 import { useAlertStore } from '../store/alertStore';
 import { registerForPushNotifications } from '../services/notificationService';
-import { registerBackgroundAlertTask } from '../services/backgroundAlertTask';
 
 import LoginScreen        from '../screens/auth/LoginScreen';
 import RegisterScreen     from '../screens/auth/RegisterScreen';
@@ -70,9 +69,6 @@ const AppNavigator = () => {
         .catch(console.error);
 
       registerForPushNotifications().catch(console.warn);
-
-      // Đăng ký background task để nhận cảnh báo khi app đóng
-      registerBackgroundAlertTask().catch(console.warn);
 
       setTimeout(() => { socketService.joinFarm(user.id); }, 500);
 
