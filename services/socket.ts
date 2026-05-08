@@ -36,8 +36,12 @@ class SocketService {
       auth: {
         token: token,
       },
-      transports: ['websocket'],
-      timeout: 10000,
+      // Railway requires starting with polling before upgrading to websocket
+      transports: ['polling', 'websocket'],
+      timeout: 15000,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
     });
 
     this.setupEventListeners();
@@ -59,15 +63,15 @@ class SocketService {
     if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      console.log('Socket connected');
+      console.log('[Socket] Connected! ID:', this.socket?.id);
     });
 
     this.socket.on('disconnect', (reason: string) => {
-      console.log('Socket disconnected:', reason);
+      console.log('[Socket] Disconnected:', reason);
     });
 
     this.socket.on('connect_error', (error: Error) => {
-      console.error('Socket connection error:', error);
+      console.error('[Socket] Connection error:', error.message);
     });
   }
 
