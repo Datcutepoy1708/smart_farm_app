@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
@@ -94,13 +94,14 @@ const AppNavigator = () => {
           console.error('Lỗi hiển thị thông báo:', err);
         }
         
-        // Hiển thị thêm hộp thoại trực tiếp trên màn hình (để đảm bảo không bị sót)
-        import('react-native').then(({ Alert }) => {
-          Alert.alert(
-            newAlert.alertType === 'fire' ? '🔥 CHÁY KHẨN CẤP' : '⚠️ CẢNH BÁO',
-            newAlert.message || 'Có bất thường tại chuồng!'
-          );
-        });
+        // Hiển thị hộp thoại trực tiếp trên màn hình (bảo hiểm kép)
+        Alert.alert(
+          newAlert.alertType === 'fire' ? '🔥 CHÁY KHẨN CẤP'
+          : newAlert.alertType === 'toxic_gas' ? '☠️ KHÍ ĐỘC'
+          : newAlert.alertType === 'feed_error' || newAlert.alertType === 'feed_insufficient' ? '⚠️ KẸT/HẾT CÁM'
+          : '⚠️ CẢNH BÁO',
+          newAlert.message || 'Có bất thường tại chuồng!'
+        );
       });
 
     } else {
