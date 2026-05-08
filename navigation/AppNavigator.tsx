@@ -10,6 +10,7 @@ import { navigationRef } from './navigationRef';
 import { socketService } from '../services/socket';
 import { alertApi } from '../services/api';
 import { useAlertStore } from '../store/alertStore';
+import { registerForPushNotifications } from '../services/notificationService';
 
 import LoginScreen        from '../screens/auth/LoginScreen';
 import RegisterScreen     from '../screens/auth/RegisterScreen';
@@ -62,6 +63,9 @@ const AppNavigator = () => {
       alertApi.getUnreadCount(1)
         .then((res) => setUnreadCount(res.data.unreadCount))
         .catch(console.error);
+
+      // Đăng ký nhận thông báo đẩy qua Expo khi app khởi động (background/lockscreen)
+      registerForPushNotifications().catch(console.warn);
 
       // Join đúng room theo userId — backend lắng nghe 'join:farm'
       setTimeout(() => {

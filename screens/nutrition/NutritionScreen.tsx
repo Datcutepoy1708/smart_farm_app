@@ -82,6 +82,14 @@ export default function NutritionScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [analysisModalVisible, setAnalysisModalVisible] = useState(false);
+  // Bước xác nhận: 'confirm' | 'result'
+  const [analysisStep, setAnalysisStep] = useState<'confirm' | 'result'>('confirm');
+  // Form xác nhận thông tin bao bì
+  const [confirmName, setConfirmName] = useState('');
+  const [confirmProtein, setConfirmProtein] = useState('');
+  const [confirmEnergy, setConfirmEnergy] = useState('');
+  const [confirmCalcium, setConfirmCalcium] = useState('');
+  const [confirmFiber, setConfirmFiber] = useState('');
 
   const barnId = 1;
 
@@ -216,12 +224,17 @@ export default function NutritionScreen() {
       console.log('[AI] Response status:', response.status);
       console.log('[AI] Response data:', JSON.stringify(response.data).substring(0, 500));
       
-      if (response.data.success && response.data.data) {
-        setAnalysisResult(response.data.data);
-        setAnalysisModalVisible(true);
-      } else if (response.data) {
-        // Fallback: backend returned data but not in expected format
-        setAnalysisResult(response.data);
+      const resultData = response.data.success && response.data.data ? response.data.data : response.data;
+      if (resultData) {
+        setAnalysisResult(resultData);
+        // Pre-fill form xác nhận với dữ liệu AI quét được
+        const analysis = resultData.analysis || resultData;
+        setConfirmName(analysis.name_suggestion || '');
+        setConfirmProtein(analysis.protein_pct?.toString() || '');
+        setConfirmEnergy(analysis.energy_kcal?.toString() || '');
+        setConfirmCalcium(analysis.calcium_pct?.toString() || '');
+        setConfirmFiber(analysis.fiber_pct?.toString() || '');
+        setAnalysisStep('confirm');
         setAnalysisModalVisible(true);
       }
     } catch (error: any) {
@@ -340,68 +353,316 @@ export default function NutritionScreen() {
     </Modal>
   );
 
+  /** Tính toán mức độ phù hợp của cám với đàn gà */
+  const calcFeedSuitability = (analysis: any): { score: number; level: 'good' | 'ok' | 'bad'; reasons: string[] } => {
+    if (!data || !analysis) return { score: 0, level: 'bad', reasons: [] };
+    const reasons: string[] = [];
+    let score = 100;
+
+    const stage = data.stage;
+    const standardStage = STAGES.find(s => s.id === stage);
+    if (!standardStage) return { score: 0, level: 'bad', reasons: [] };
+
+    // Kiểm tra Protein
+    const proteinDiff = parseFloat(confirmProtein || analysis.protein_pct) - standardStage.protein;
+    if (proteinDiff < -2) {
+      score -= 30;
+      reasons.push(`❌ Đạm thấp hơn tiêu chuẩn ${standardStage.protein}% (hiện: ${confirmProtein || analysis.protein_pct}%)`);
+    } else if (proteinDiff > 4) {
+      score -= 10;
+      reasons.push(`⚠️ Đạm cao hơn tiêu chuẩn (${standardStage.protein}%), dễ gây lãng phí`);
+    } else {
+      reasons.push(`✅ Đạm phù hợp tiêu chuẩn giai đoạn ${stage} (${standardStage.protein}%)`);
+    }
+
+    // Kiểm tra Năng lượng
+    const energyVal = parseFloat(confirmEnergy || analysis.energy_kcal);
+    const energyDiff = energyVal - standardStage.energy;
+    if (energyDiff < -150) {
+      score -= 25;
+      reasons.push(`❌ Năng lượng thấp hơn tiêu chuẩn ${standardStage.energy} Kcal (hiện: ${energyVal} Kcal)`);
+    } else if (energyDiff > 200) {
+      score -= 5;
+      reasons.push(`⚠️ Năng lượng hơi cao so với tiêu chuẩn ${standardStage.energy} Kcal`);
+    } else {
+      reasons.push(`✅ Năng lượng phù hợp giai đoạn ${stage} (${standardStage.energy} Kcal)`);
+    }
+
+    // Kiểm tra Xơ thô
+    const fiberVal = parseFloat(confirmFiber || analysis.fiber_pct || '0');
+    if (fiberVal > 6) {
+      score -= 15;
+      reasons.push(`⚠️ Xơ thô (${fiberVal}%) cao, có thể làm giảm tiêu hóa của gà`);
+    } else if (fiberVal > 0) {
+      reasons.push(`✅ Xơ thô trong ngưỡng cho phép (${fiberVal}%)`);
+    }
+
+    const level: 'good' | 'ok' | 'bad' = score >= 80 ? 'good' : score >= 55 ? 'ok' : 'bad';
+    return { score: Math.max(0, score), level, reasons };
+  };
+
   const renderFeedAnalysisModal = () => {
     if (!analysisResult) return null;
     const { analysis, id: productId } = analysisResult;
 
-    return (
-      <Modal visible={analysisModalVisible} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Ionicons name="sparkles" size={32} color={COLORS.orange} />
-              <Text style={styles.modalTitle}>Phân tích thành công</Text>
-            </View>
+    // --- BƯỚC 1: XÁC NHẬN THÔNG TIN BAO BÌ ---
+    if (analysisStep === 'confirm') {
+      return (
+        <Modal visible={analysisModalVisible} animationType="slide" transparent>
+          <View style={styles.aiModalOverlay}>
+            <View style={styles.aiBottomSheet}>
+              {/* Handle bar */}
+              <View style={styles.sheetHandle} />
 
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.primary, marginBottom: 8, textAlign: 'center' }}>
-              {analysis.name_suggestion}
-            </Text>
+              {/* Step indicator */}
+              <View style={styles.stepIndicatorRow}>
+                <View style={[styles.stepDot, styles.stepDotActive]} />
+                <View style={styles.stepLine} />
+                <View style={styles.stepDot} />
+              </View>
 
-            <View style={{ backgroundColor: '#F9F9F9', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>Bảng thành phần:</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ color: COLORS.textSecondary }}>Đạm (Protein):</Text>
-                <Text style={{ fontWeight: 'bold' }}>{analysis.protein_pct}%</Text>
+              {/* Header */}
+              <View style={styles.sheetHeader}>
+                <View style={styles.sheetIconWrap}>
+                  <Ionicons name="scan-outline" size={22} color="#fff" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.sheetStepLabel}>Bước 1 / 2</Text>
+                  <Text style={styles.sheetTitle}>Xác nhận bao bì</Text>
+                </View>
+                <TouchableOpacity onPress={() => setAnalysisModalVisible(false)} style={styles.sheetCloseBtn}>
+                  <Ionicons name="close" size={20} color="#999" />
+                </TouchableOpacity>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ color: COLORS.textSecondary }}>Năng lượng:</Text>
-                <Text style={{ fontWeight: 'bold' }}>{analysis.energy_kcal} Kcal</Text>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ color: COLORS.textSecondary }}>Canxi:</Text>
-                <Text style={{ fontWeight: 'bold' }}>{analysis.calcium_pct}%</Text>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: COLORS.textSecondary }}>Xơ thô:</Text>
-                <Text style={{ fontWeight: 'bold' }}>{analysis.fiber_pct}%</Text>
-              </View>
-            </View>
 
-            <View style={{ backgroundColor: '#E8F5E9', borderRadius: 8, padding: 12, marginBottom: 20 }}>
-              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.primary, marginBottom: 4 }}>AI Đề xuất:</Text>
-              <Text style={{ fontSize: 13, color: COLORS.text, lineHeight: 20 }}>
-                {analysis.explanation}
+              <Text style={styles.sheetSubtitle}>
+                AI đã đọc được thông tin dưới đây. Đối chiếu với bao bì thật và chỉnh sửa nếu cần.
               </Text>
-              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#C8E6C9', paddingTop: 8, alignItems: 'center' }}>
-                <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>Lượng ăn / ngày / con</Text>
-                <Text style={{ fontSize: 20, fontWeight: 'bold', color: COLORS.primary }}>
-                  {analysis.recommendedGramPerChicken}g
-                </Text>
+
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {/* Tên sản phẩm */}
+                <View style={styles.aiInputGroup}>
+                  <View style={styles.aiInputIcon}>
+                    <Ionicons name="pricetag-outline" size={14} color={COLORS.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.aiInputLabel}>Tên sản phẩm</Text>
+                    <TextInput
+                      style={styles.aiInput}
+                      value={confirmName}
+                      onChangeText={setConfirmName}
+                      placeholder="Tên loại cám..."
+                      placeholderTextColor="#bbb"
+                    />
+                  </View>
+                </View>
+
+                {/* Grid 2 cột */}
+                <View style={styles.aiGridRow}>
+                  <View style={[styles.aiInputGroup, { flex: 1, marginRight: 6 }]}>
+                    <View style={styles.aiInputIcon}>
+                      <Ionicons name="flask-outline" size={14} color="#4CAF50" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.aiInputLabel}>Đạm (%)</Text>
+                      <TextInput
+                        style={styles.aiInput}
+                        value={confirmProtein}
+                        onChangeText={setConfirmProtein}
+                        keyboardType="decimal-pad"
+                        placeholder="20"
+                        placeholderTextColor="#bbb"
+                      />
+                    </View>
+                  </View>
+                  <View style={[styles.aiInputGroup, { flex: 1, marginLeft: 6 }]}>
+                    <View style={[styles.aiInputIcon, { backgroundColor: '#FFF3E0' }]}>
+                      <Ionicons name="flash-outline" size={14} color="#FF9800" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.aiInputLabel}>Năng lượng (Kcal)</Text>
+                      <TextInput
+                        style={styles.aiInput}
+                        value={confirmEnergy}
+                        onChangeText={setConfirmEnergy}
+                        keyboardType="decimal-pad"
+                        placeholder="3100"
+                        placeholderTextColor="#bbb"
+                      />
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.aiGridRow}>
+                  <View style={[styles.aiInputGroup, { flex: 1, marginRight: 6 }]}>
+                    <View style={[styles.aiInputIcon, { backgroundColor: '#E3F2FD' }]}>
+                      <Ionicons name="water-outline" size={14} color="#2196F3" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.aiInputLabel}>Canxi (%)</Text>
+                      <TextInput
+                        style={styles.aiInput}
+                        value={confirmCalcium}
+                        onChangeText={setConfirmCalcium}
+                        keyboardType="decimal-pad"
+                        placeholder="1.2"
+                        placeholderTextColor="#bbb"
+                      />
+                    </View>
+                  </View>
+                  <View style={[styles.aiInputGroup, { flex: 1, marginLeft: 6 }]}>
+                    <View style={[styles.aiInputIcon, { backgroundColor: '#F3E5F5' }]}>
+                      <Ionicons name="leaf-outline" size={14} color="#9C27B0" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.aiInputLabel}>Xơ thô (%)</Text>
+                      <TextInput
+                        style={styles.aiInput}
+                        value={confirmFiber}
+                        onChangeText={setConfirmFiber}
+                        keyboardType="decimal-pad"
+                        placeholder="4"
+                        placeholderTextColor="#bbb"
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* Hint */}
+                <View style={styles.aiHintRow}>
+                  <Ionicons name="bulb-outline" size={15} color="#FF9800" />
+                  <Text style={styles.aiHintText}>
+                    Thông tin trên có thể sai nếu ảnh mờ — hãy kiểm tra và sửa trực tiếp.
+                  </Text>
+                </View>
+              </ScrollView>
+
+              {/* Actions */}
+              <View style={styles.aiActionRow}>
+                <TouchableOpacity style={styles.aiCancelBtn} onPress={() => setAnalysisModalVisible(false)}>
+                  <Text style={styles.aiCancelText}>Hủy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.aiPrimaryBtn} onPress={() => setAnalysisStep('result')}>
+                  <Text style={styles.aiPrimaryText}>Xem khuyến nghị</Text>
+                  <Ionicons name="arrow-forward" size={16} color="#fff" style={{ marginLeft: 6 }} />
+                </TouchableOpacity>
               </View>
             </View>
+          </View>
+        </Modal>
+      );
+    }
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnCancel]}
-                onPress={() => setAnalysisModalVisible(false)}
-              >
-                <Text style={styles.modalBtnCancelText}>Hủy</Text>
+    // --- BƯỚC 2: KẾT QUẢ + KHUYẾN NGHỊ PHÙ HỢP ---
+    const suitability = calcFeedSuitability(analysis);
+    const suitabilityColor = suitability.level === 'good' ? '#2E7D32' : suitability.level === 'ok' ? '#E65100' : '#C62828';
+    const suitabilityColorLight = suitability.level === 'good' ? '#4CAF50' : suitability.level === 'ok' ? '#FF9800' : '#F44336';
+    const suitabilityBg = suitability.level === 'good' ? '#E8F5E9' : suitability.level === 'ok' ? '#FFF3E0' : '#FFEBEE';
+    const suitabilityEmoji = suitability.level === 'good' ? '✅' : suitability.level === 'ok' ? '⚠️' : '❌';
+    const suitabilityLabel = suitability.level === 'good' ? 'Phù hợp' : suitability.level === 'ok' ? 'Tạm được' : 'Không phù hợp';
+
+    const nutrientPills = [
+      { label: 'Đạm', value: `${confirmProtein || analysis.protein_pct}%`, color: '#4CAF50', bg: '#E8F5E9', icon: 'flask-outline' as const },
+      { label: 'Năng lượng', value: `${confirmEnergy || analysis.energy_kcal}`, unit: 'Kcal', color: '#FF9800', bg: '#FFF3E0', icon: 'flash-outline' as const },
+      { label: 'Canxi', value: `${confirmCalcium || analysis.calcium_pct}%`, color: '#2196F3', bg: '#E3F2FD', icon: 'water-outline' as const },
+      { label: 'Xơ thô', value: `${confirmFiber || analysis.fiber_pct}%`, color: '#9C27B0', bg: '#F3E5F5', icon: 'leaf-outline' as const },
+    ];
+
+    return (
+      <Modal visible={analysisModalVisible} animationType="slide" transparent>
+        <View style={styles.aiModalOverlay}>
+          <View style={styles.aiBottomSheet}>
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
+            {/* Step indicator */}
+            <View style={styles.stepIndicatorRow}>
+              <View style={[styles.stepDot, styles.stepDotDone]} />
+              <View style={[styles.stepLine, { backgroundColor: COLORS.secondary }]} />
+              <View style={[styles.stepDot, styles.stepDotActive]} />
+            </View>
+
+            {/* Header */}
+            <View style={styles.sheetHeader}>
+              <View style={[styles.sheetIconWrap, { backgroundColor: COLORS.orange }]}>
+                <Ionicons name="sparkles" size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.sheetStepLabel}>Bước 2 / 2</Text>
+                <Text style={styles.sheetTitle}>{confirmName || analysis.name_suggestion}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setAnalysisModalVisible(false)} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#999" />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnSave, { backgroundColor: COLORS.orange }]}
-                onPress={() => handleApplyFeedProduct(productId)}
-              >
-                <Text style={styles.modalBtnSaveText}>Áp dụng cám này</Text>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Nutrient pills */}
+              <View style={styles.pillRow}>
+                {nutrientPills.map((p, i) => (
+                  <View key={i} style={[styles.nutrientPill, { backgroundColor: p.bg }]}>
+                    <Ionicons name={p.icon} size={14} color={p.color} />
+                    <Text style={[styles.pillValue, { color: p.color }]}>{p.value}{p.unit ? '' : ''}</Text>
+                    {p.unit && <Text style={[styles.pillUnit, { color: p.color }]}>{p.unit}</Text>}
+                    <Text style={styles.pillLabel}>{p.label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Suitability card */}
+              <View style={[styles.suitCard, { borderLeftColor: suitabilityColorLight }]}>
+                <View style={styles.suitCardHeader}>
+                  <View>
+                    <Text style={styles.suitCardTitle}>Khuyến nghị cho đàn gà</Text>
+                    <Text style={{ fontSize: 11, color: COLORS.textSecondary, marginTop: 2 }}>
+                      Giai đoạn <Text style={{ fontWeight: '700', color: '#333' }}>{data?.stage?.toUpperCase()}</Text> • {data?.ageDays} ngày tuổi
+                    </Text>
+                  </View>
+                  <View style={[styles.suitBadge, { backgroundColor: suitabilityColorLight }]}>
+                    <Text style={styles.suitBadgeText}>{suitabilityEmoji} {suitabilityLabel}</Text>
+                  </View>
+                </View>
+
+                {/* Score bar */}
+                <View style={styles.scoreRow}>
+                  <View style={styles.scoreBarBg}>
+                    <View style={[styles.scoreBarFill, { width: `${suitability.score}%`, backgroundColor: suitabilityColorLight }]} />
+                  </View>
+                  <Text style={[styles.scoreNum, { color: suitabilityColorLight }]}>{suitability.score}</Text>
+                  <Text style={styles.scoreMax}>/100</Text>
+                </View>
+
+                {/* Reasons */}
+                <View style={{ marginTop: 8 }}>
+                  {suitability.reasons.map((reason, idx) => (
+                    <View key={idx} style={styles.reasonRow}>
+                      <Text style={styles.reasonText}>{reason}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {/* AI dose card */}
+              <View style={styles.doseCard}>
+                <View style={styles.doseLeft}>
+                  <Ionicons name="nutrition-outline" size={32} color={COLORS.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.doseLabel}>AI đề xuất · Lượng ăn mỗi ngày</Text>
+                  <Text style={styles.doseValue}>{analysis.recommendedGramPerChicken}g <Text style={styles.doseUnit}>/ con</Text></Text>
+                  <Text style={styles.doseExplain} numberOfLines={3}>{analysis.explanation}</Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Actions */}
+            <View style={styles.aiActionRow}>
+              <TouchableOpacity style={styles.aiCancelBtn} onPress={() => setAnalysisStep('confirm')}>
+                <Ionicons name="arrow-back" size={15} color="#666" />
+                <Text style={[styles.aiCancelText, { marginLeft: 4 }]}>Sửa lại</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.aiPrimaryBtn, { backgroundColor: COLORS.orange }]} onPress={() => handleApplyFeedProduct(productId)}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={[styles.aiPrimaryText, { marginLeft: 6 }]}>Áp dụng cám này</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -409,6 +670,7 @@ export default function NutritionScreen() {
       </Modal>
     );
   };
+
 
   if (loading || isAnalyzing) {
     return (
@@ -881,6 +1143,197 @@ const styles = StyleSheet.create({
   modalBtnCancelText: { fontWeight: '600', fontSize: 15, color: '#555' },
   modalBtnSave: { backgroundColor: COLORS.primary },
   modalBtnSaveText: { fontWeight: '600', fontSize: 15, color: COLORS.white },
+
+  // ── AI Modal – Bottom Sheet ─────────────────────────────
+  aiModalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  aiBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 56,
+    paddingTop: 12,
+    maxHeight: '92%',
+  },
+  sheetHandle: {
+    width: 40, height: 4,
+    backgroundColor: '#DDD',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+
+  // Step indicator dots
+  stepIndicatorRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', marginBottom: 16,
+  },
+  stepDot: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#DDD',
+  },
+  stepDotActive: { backgroundColor: COLORS.primary, width: 24, borderRadius: 5 },
+  stepDotDone: { backgroundColor: COLORS.secondary },
+  stepLine: {
+    width: 32, height: 2,
+    backgroundColor: '#DDD',
+    marginHorizontal: 4,
+  },
+
+  // Sheet header
+  sheetHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: 8,
+  },
+  sheetIconWrap: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheetStepLabel: { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.5 },
+  sheetTitle: { fontSize: 17, fontWeight: '700', color: '#111', marginTop: 1 },
+  sheetCloseBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheetSubtitle: {
+    fontSize: 12.5, color: '#888', lineHeight: 18,
+    marginBottom: 16,
+  },
+
+  // Input groups
+  aiInputGroup: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12, padding: 12,
+    marginBottom: 10,
+    borderWidth: 1, borderColor: '#EEEEEE',
+  },
+  aiInputIcon: {
+    width: 28, height: 28, borderRadius: 8,
+    backgroundColor: '#E8F5E9',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 10, marginTop: 2,
+  },
+  aiInputLabel: { fontSize: 11, color: '#999', fontWeight: '600', marginBottom: 3 },
+  aiInput: {
+    fontSize: 15, fontWeight: '600', color: '#222',
+    paddingVertical: 0,
+  },
+  aiGridRow: { flexDirection: 'row' },
+  aiHintRow: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: '#FFFDE7',
+    borderRadius: 10, padding: 10,
+    marginTop: 2, marginBottom: 6,
+    gap: 8,
+  },
+  aiHintText: { fontSize: 12, color: '#795548', flex: 1, lineHeight: 17 },
+
+  // Nutrient pills (step 2)
+  pillRow: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    gap: 8, marginBottom: 14,
+  },
+  nutrientPill: {
+    flex: 1, minWidth: '44%',
+    borderRadius: 14, padding: 12,
+    alignItems: 'center',
+  },
+  pillValue: { fontSize: 20, fontWeight: '800', marginTop: 4 },
+  pillUnit: { fontSize: 10, fontWeight: '600', marginTop: -2 },
+  pillLabel: { fontSize: 11, color: '#777', marginTop: 4, fontWeight: '500' },
+
+  // Suitability card
+  suitCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16, padding: 14,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderWidth: 1, borderColor: '#EEEEEE',
+  },
+  suitCardHeader: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    justifyContent: 'space-between', marginBottom: 10,
+  },
+  suitCardTitle: { fontSize: 13, fontWeight: '700', color: '#222' },
+  suitBadge: {
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 20,
+  },
+  suitBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  scoreRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 8, marginBottom: 10,
+  },
+  scoreBarBg: {
+    flex: 1, height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4, overflow: 'hidden',
+  },
+  scoreBarFill: { height: '100%', borderRadius: 4 },
+  scoreNum: { fontSize: 16, fontWeight: '800' },
+  scoreMax: { fontSize: 11, color: '#999', fontWeight: '600' },
+  reasonRow: { marginBottom: 5 },
+  reasonText: { fontSize: 12.5, color: '#444', lineHeight: 18 },
+
+  // Dose card
+  doseCard: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: '#F0F7F0',
+    borderRadius: 16, padding: 14,
+    marginBottom: 16, gap: 12,
+  },
+  doseLeft: {
+    width: 52, height: 52, borderRadius: 14,
+    backgroundColor: '#C8E6C9',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  doseLabel: { fontSize: 11, color: '#777', fontWeight: '600' },
+  doseValue: { fontSize: 26, fontWeight: '800', color: COLORS.primary, marginTop: 2 },
+  doseUnit: { fontSize: 14, fontWeight: '500', color: '#888' },
+  doseExplain: { fontSize: 12, color: '#666', lineHeight: 17, marginTop: 4 },
+
+  // Action row
+  aiActionRow: {
+    flexDirection: 'row', gap: 10,
+    marginTop: 12,
+  },
+  aiCancelBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 18,
+    borderRadius: 14, backgroundColor: '#F0F0F0',
+  },
+  aiCancelText: { fontSize: 14, fontWeight: '600', color: '#555' },
+  aiPrimaryBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderRadius: 14, backgroundColor: COLORS.primary,
+  },
+  aiPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+
+  // kept for weight modal compat
+  stepBadge: { backgroundColor: '#E8F5E9', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: COLORS.secondary },
+  stepBadgeText: { fontSize: 11, fontWeight: '700', color: COLORS.primary },
+  confirmGridRow: { flexDirection: 'row', marginBottom: 0 },
+  confirmHintBox: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#F0F7F0', borderRadius: 8, padding: 10, marginBottom: 16 },
+  confirmedTable: { backgroundColor: '#F9F9F9', borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: COLORS.border },
+  confirmedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#EEEEEE' },
+  confirmedLabel: { fontSize: 13, color: COLORS.textSecondary },
+  confirmedValue: { fontSize: 13, fontWeight: 'bold', color: COLORS.text },
+  suitabilityBox: { borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1.5 },
+  suitabilityHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  suitabilityTitle: { fontSize: 14, fontWeight: 'bold' },
+  suitabilityBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  suitabilityBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  scoreBarContainer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  scoreText: { fontSize: 13, fontWeight: 'bold', minWidth: 50, textAlign: 'right' },
+  suitabilityReason: { fontSize: 12, color: '#444', marginBottom: 4, lineHeight: 18 },
   
   // Nút AI
   scanAiBtn: {
