@@ -7,14 +7,11 @@ import {
   TouchableOpacity,
   Alert as RNAlert,
   FlatList,
-  TextInput,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from '@expo/vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
-import { COLORS, API_URL } from '../../constants/config';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLORS } from '../../constants/config';
 
 interface FeedingSchedule {
   id: number;
@@ -31,71 +28,6 @@ interface FeedingSchedule {
 const FeedingScreen = () => {
   const navigation = useNavigation();
   const [selectedTab, setSelectedTab] = useState<'schedule' | 'history' | 'settings'>('schedule');
-
-  // ── Cân HX711 calibration ─────────────────────────────────────────────────
-  const [scaleFactor, setScaleFactor] = useState('2280');
-  const [knownWeight, setKnownWeight] = useState('');
-  const [isSendingScale, setIsSendingScale] = useState(false);
-
-  const sendScaleFactor = async () => {
-    const factor = parseFloat(scaleFactor);
-    if (isNaN(factor) || factor <= 0) {
-      RNAlert.alert('Lỗi', 'Hệ số cân phải là số dương hợp lệ');
-      return;
-    }
-    setIsSendingScale(true);
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const res = await fetch(`${API_URL}/barns/1/scale-calibration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ factor }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        RNAlert.alert('✅ Thành công', `Đã cập nhật hệ số cân: ${factor}`);
-      } else {
-        RNAlert.alert('Lỗi', json.message || 'Không gửi được lệnh');
-      }
-    } catch (e) {
-      RNAlert.alert('Lỗi kết nối', 'Không thể kết nối backend');
-    } finally {
-      setIsSendingScale(false);
-    }
-  };
-
-  const sendAutoCalibrate = async () => {
-    const kg = parseFloat(knownWeight);
-    if (isNaN(kg) || kg <= 0) {
-      RNAlert.alert('Lỗi', 'Nhập khối lượng vật nặng dương hợp lệ');
-      return;
-    }
-    RNAlert.alert(
-      '🏗️ Xác nhận Auto-Calibration',
-      `Đặt vật nặng ${kg}kg lên cân TRƯỚC rồi bấm Đồng ý`,
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Đồng ý', onPress: async () => {
-            setIsSendingScale(true);
-            try {
-              const token = await AsyncStorage.getItem('token');
-              await fetch(`${API_URL}/barns/1/scale-calibration`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ knownWeightKg: kg }),
-              });
-              RNAlert.alert('✅ Đã gửi lệnh', 'ESP32 đang tự tính hệ số...');
-            } catch {
-              RNAlert.alert('Lỗi', 'Không gửi được');
-            } finally {
-              setIsSendingScale(false);
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const [feedingSchedules, setFeedingSchedules] = useState<FeedingSchedule[]>([
     {
@@ -330,61 +262,12 @@ const FeedingScreen = () => {
               {feedTypes.map(renderFeedTypeCard)}
             </View>
 
-            {/* ── HIỆU CHỄNH CÂN HX711 ─────────────────────────── */}
-            <View style={styles.settingsCard}>
-              <View style={styles.settingsCardHeader}>
-                <Icon name="scale" size={20} color={COLORS.primary} />
-                <Text style={styles.settingsTitle}> Hiệu chỉnh cân (HX711)</Text>
-              </View>
-
-              {/* Cách 1: Đặt hệ số cân thủ công */}
-              <Text style={styles.calibrateLabel}>Đặt hệ số cân trực tiếp</Text>
-              <View style={styles.calibrateRow}>
-                <TextInput
-                  style={styles.calibrateInput}
-                  value={scaleFactor}
-                  onChangeText={setScaleFactor}
-                  keyboardType="decimal-pad"
-                  placeholder="Ví dụ: 2280"
-                />
-                <TouchableOpacity
-                  style={[styles.calibrateBtn, isSendingScale && { opacity: 0.6 }]}
-                  onPress={sendScaleFactor}
-                  disabled={isSendingScale}
-                >
-                  {isSendingScale
-                    ? <ActivityIndicator size="small" color={COLORS.white} />
-                    : <Text style={styles.calibrateBtnText}>Áp dụng</Text>
-                  }
-                </TouchableOpacity>
-              </View>
-
-              {/* Cách 2: Auto-calibration */}
-              <Text style={[styles.calibrateLabel, { marginTop: 12 }]}>Auto-calibration (khối lượng biết trước)</Text>
-              <View style={styles.calibrateRow}>
-                <TextInput
-                  style={styles.calibrateInput}
-                  value={knownWeight}
-                  onChangeText={setKnownWeight}
-                  keyboardType="decimal-pad"
-                  placeholder="Ví dụ: 0.5 (kg)"
-                />
-                <TouchableOpacity
-                  style={[styles.calibrateBtn, { backgroundColor: COLORS.warning }, isSendingScale && { opacity: 0.6 }]}
-                  onPress={sendAutoCalibrate}
-                  disabled={isSendingScale}
-                >
-                  <Text style={styles.calibrateBtnText}>Calibrate</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.calibrateHint}>
-                💡 Đặt vật nặng đã biết lên cân trước khi bấm Calibrate
-              </Text>
-            </View>
-
             {/* ── CÀI ĐẶT CHO ĂN ─────────────────────────────────── */}
             <View style={styles.settingsCard}>
-              <Text style={styles.settingsTitle}>Cài đặt cho ăn tự động</Text>
+              <View style={styles.settingsCardHeader}>
+                <Icon name="settings" size={20} color={COLORS.primary} />
+                <Text style={styles.settingsTitle}> Cài đặt cho ăn tự động</Text>
+              </View>
               <View style={styles.settingItem}>
                 <Text style={styles.settingLabel}>Thời gian cho ăn mặc định</Text>
                 <Text style={styles.settingValue}>06:00, 10:00, 14:00, 18:00</Text>
@@ -396,6 +279,33 @@ const FeedingScreen = () => {
               <View style={styles.settingItem}>
                 <Text style={styles.settingLabel}>Nhắc nhở</Text>
                 <Text style={styles.settingValue}>15 phút trước khi cho ăn</Text>
+              </View>
+              <View style={[styles.settingItem, { borderBottomWidth: 0 }]}>
+                <Text style={styles.settingLabel}>Cho ăn tự động</Text>
+                <View style={styles.statusChip}>
+                  <Icon name="check-circle" size={14} color={COLORS.success} />
+                  <Text style={styles.statusChipText}>Đang bật</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* ── THÔNG TIN DINH DƯỠNG ─────────────────────────── */}
+            <View style={[styles.settingsCard, { marginTop: 16 }]}>
+              <View style={styles.settingsCardHeader}>
+                <Icon name="info" size={20} color={COLORS.primary} />
+                <Text style={styles.settingsTitle}> Thông tin dinh dưỡng</Text>
+              </View>
+              <View style={styles.settingItem}>
+                <Text style={styles.settingLabel}>Protein tối thiểu</Text>
+                <Text style={styles.settingValue}>18 - 22%</Text>
+              </View>
+              <View style={styles.settingItem}>
+                <Text style={styles.settingLabel}>Năng lượng (Kcal/kg)</Text>
+                <Text style={styles.settingValue}>2,900 - 3,100</Text>
+              </View>
+              <View style={[styles.settingItem, { borderBottomWidth: 0 }]}>
+                <Text style={styles.settingLabel}>Nước uống / ngày</Text>
+                <Text style={styles.settingValue}>2x lượng thức ăn</Text>
               </View>
             </View>
           </ScrollView>
@@ -610,7 +520,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   settingItem: {
     flexDirection: 'row',
@@ -640,46 +550,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  calibrateLabel: {
-    fontSize: 13,
-    color: COLORS.gray,
-    marginBottom: 6,
-    fontWeight: '500',
-  },
-  calibrateRow: {
+  statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
   },
-  calibrateInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
-    color: COLORS.text,
-    backgroundColor: COLORS.lightGray,
-  },
-  calibrateBtn: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  calibrateBtnText: {
-    color: COLORS.white,
-    fontWeight: '600',
+  statusChipText: {
     fontSize: 13,
-  },
-  calibrateHint: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginTop: 6,
-    fontStyle: 'italic',
+    color: COLORS.success,
+    fontWeight: '600',
   },
 });
 

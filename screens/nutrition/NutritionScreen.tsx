@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { feedApi, weightLogApi, farmAiApi } from '../../services/api';
+import { feedApi, farmAiApi } from '../../services/api';
 
 interface NutritionData {
   stage: 'starter' | 'grower' | 'finisher';
@@ -65,15 +65,8 @@ const STAGES = [
 export default function NutritionScreen() {
   const navigation = useNavigation();
   const [data, setData] = useState<NutritionData | null>(null);
-  const [weightLogs, setWeightLogs] = useState<WeightLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Modal cân nặng mẫu
-  const [weightModalVisible, setWeightModalVisible] = useState(false);
-  const [totalWeightInput, setTotalWeightInput] = useState('');
-  const [sampleCountInput, setSampleCountInput] = useState('10');
-  const [savingWeight, setSavingWeight] = useState(false);
 
   // Cám đang sử dụng
   const [activeFeed, setActiveFeed] = useState<any>(null);
@@ -98,9 +91,8 @@ export default function NutritionScreen() {
       setLoading(true);
       setError(null);
 
-      const [nutritionRes, weightLogsRes, activeFeedRes] = await Promise.all([
+      const [nutritionRes, activeFeedRes] = await Promise.all([
         feedApi.calculate(barnId),
-        weightLogApi.getHistory(barnId, 5),
         feedApi.getActiveProduct(barnId),
       ]);
 
@@ -127,9 +119,6 @@ export default function NutritionScreen() {
         setError('Không có dữ liệu.');
       }
 
-      const logsRaw = weightLogsRes.data?.data || weightLogsRes.data || [];
-      setWeightLogs(Array.isArray(logsRaw) ? logsRaw : []);
-
       const activeProduct = activeFeedRes.data?.data || null;
       setActiveFeed(activeProduct);
     } catch (err) {
@@ -144,52 +133,7 @@ export default function NutritionScreen() {
     fetchNutritionData();
   }, [fetchNutritionData]);
 
-  /** Lưu cân nặng mẫu → cập nhật avgWeightKg → re-calculate */
-  const handleSaveWeight = async () => {
-    const totalKg = parseFloat(totalWeightInput);
-    const count = parseInt(sampleCountInput, 10);
 
-    if (isNaN(totalKg) || totalKg <= 0) {
-      Alert.alert('Lỗi', 'Vui lòng nhập tổng cân nặng hợp lệ (kg)');
-      return;
-    }
-    if (isNaN(count) || count <= 0) {
-      Alert.alert('Lỗi', 'Số con mẫu phải lớn hơn 0');
-      return;
-    }
-
-    const avgKg = totalKg / count;
-
-    Alert.alert(
-      'Xác nhận cân nặng',
-      `Tổng: ${totalKg}kg / ${count} con\n→ Cân nặng TB: ${avgKg.toFixed(3)} kg/con\n\nLưu và cập nhật khẩu phần?`,
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Lưu',
-          onPress: async () => {
-            try {
-              setSavingWeight(true);
-              await weightLogApi.record(barnId, {
-                totalWeightKg: totalKg,
-                sampleCount: count,
-              });
-              setWeightModalVisible(false);
-              setTotalWeightInput('');
-              setSampleCountInput('10');
-              // Refresh nutrition data với cân nặng mới
-              await fetchNutritionData();
-              Alert.alert('✅ Thành công', 'Đã cập nhật cân nặng và tính lại khẩu phần!');
-            } catch {
-              Alert.alert('Lỗi', 'Không thể lưu cân nặng. Thử lại sau.');
-            } finally {
-              setSavingWeight(false);
-            }
-          },
-        },
-      ],
-    );
-  };
   const handleScanFeed = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -277,81 +221,7 @@ export default function NutritionScreen() {
     );
   };
 
-  /** Modal nhập cân nặng mẫu */
-  const renderWeightModal = () => (
-    <Modal visible={weightModalVisible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>⚖️ Cân nặng mẫu</Text>
-          <Text style={styles.modalSubtitle}>
-            Cân một số con random rồi nhập vào đây để hệ thống tính lại khẩu phần chính xác hơn
-          </Text>
 
-          <Text style={styles.inputLabel}>Tổng cân nặng mẫu (kg)</Text>
-          <TextInput
-            style={styles.textInput}
-            value={totalWeightInput}
-            onChangeText={setTotalWeightInput}
-            keyboardType="decimal-pad"
-            placeholder="VD: 22.5 (kg)"
-          />
-
-          <Text style={styles.inputLabel}>Số con mang cân</Text>
-          {/* Stepper cho số con mẫu */}
-          <View style={styles.stepperRow}>
-            <TouchableOpacity
-              style={styles.stepperBtn}
-              onPress={() => setSampleCountInput(v => Math.max(1, (parseInt(v) || 1) - 1).toString())}
-            >
-              <Text style={styles.stepperBtnText}>−</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.stepperInput}
-              value={sampleCountInput}
-              onChangeText={v => setSampleCountInput(v.replace(/[^0-9]/g, ''))}
-              keyboardType="numeric"
-            />
-            <Text style={styles.stepperUnit}>con</Text>
-            <TouchableOpacity
-              style={styles.stepperBtn}
-              onPress={() => setSampleCountInput(v => Math.min(100, (parseInt(v) || 1) + 1).toString())}
-            >
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Preview kết quả */}
-          {totalWeightInput && sampleCountInput && parseFloat(totalWeightInput) > 0 && parseInt(sampleCountInput) > 0 && (
-            <View style={styles.previewBox}>
-              <Text style={styles.previewLabel}>Cân nặng trung bình sẽ là:</Text>
-              <Text style={styles.previewValue}>
-                {(parseFloat(totalWeightInput) / parseInt(sampleCountInput)).toFixed(3)} kg/con
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnCancel]}
-              onPress={() => setWeightModalVisible(false)}
-            >
-              <Text style={styles.modalBtnCancelText}>Hủy</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnSave]}
-              onPress={handleSaveWeight}
-              disabled={savingWeight}
-            >
-              {savingWeight
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.modalBtnSaveText}>Lưu & Cập nhật</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
 
   /** Tính toán mức độ phù hợp của cám với đàn gà */
   const calcFeedSuitability = (analysis: any): { score: number; level: 'good' | 'ok' | 'bad'; reasons: string[] } => {
@@ -720,7 +590,6 @@ export default function NutritionScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {renderWeightModal()}
       {renderFeedAnalysisModal()}
 
       {/* Header */}
@@ -779,15 +648,9 @@ export default function NutritionScreen() {
           </View>
         )}
 
-        {/* Card 1: Thông tin đàn gà + nút cân nặng */}
+        {/* Card 1: Thông tin đàn gà */}
         <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>Thông tin đàn gà</Text>
-            <TouchableOpacity style={styles.updateWeightBtn} onPress={() => setWeightModalVisible(true)}>
-              <Ionicons name="scale-outline" size={16} color={COLORS.white} />
-              <Text style={styles.updateWeightBtnText}>Cân mẫu</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Thông tin đàn gà</Text>
 
           <View style={styles.row}>
             <View style={styles.statBox}>
@@ -807,25 +670,6 @@ export default function NutritionScreen() {
             </View>
           </View>
 
-          {/* Lịch sử cân nặng */}
-          {weightLogs.length > 0 && (
-            <View style={styles.weightLogSection}>
-              <Text style={styles.weightLogTitle}>📊 Lịch sử cân nặng gần đây</Text>
-              {weightLogs.map((log, idx) => (
-                <View key={log.id} style={[styles.weightLogRow, idx === 0 && styles.weightLogRowLatest]}>
-                  <Text style={styles.weightLogDate}>
-                    {new Date(log.recordedAt).toLocaleDateString('vi-VN')}
-                  </Text>
-                  <Text style={styles.weightLogAvg}>
-                    {Number(log.avgWeightKg).toFixed(3)} kg/con
-                  </Text>
-                  <Text style={styles.weightLogSample}>
-                    ({log.sampleCount} con mẫu)
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
         </View>
 
         {/* Card 2: Khẩu phần khuyến nghị theo định lượng */}
@@ -898,51 +742,93 @@ export default function NutritionScreen() {
           )}
         </View>
 
-        {/* Card 4: So sánh 3 giai đoạn */}
+        {/* Card 4: So sánh cám hiện tại vs tiêu chuẩn */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>So sánh tiêu chuẩn sinh trưởng</Text>
-          <View style={styles.table}>
-            <View style={[styles.tableRow, styles.tableHeader]}>
-              <Text style={[styles.tableCell, styles.tableCellHeader, { flex: 1.2 }]}>Chỉ số</Text>
-              <Text style={[styles.tableCell, styles.tableCellHeader]}>Starter</Text>
-              <Text style={[styles.tableCell, styles.tableCellHeader]}>Grower</Text>
-              <Text style={[styles.tableCell, styles.tableCellHeader]}>Finisher</Text>
-            </View>
+          <Text style={styles.compareSubtitle}>
+            Giai đoạn hiện tại: <Text style={{ fontWeight: '700', color: COLORS.primary }}>{data.stage.toUpperCase()}</Text>
+            {' • '}{data.ageDays} ngày tuổi
+          </Text>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, styles.tableCellLabel, { flex: 1.2 }]}>Protein</Text>
-              {STAGES.map(s => (
-                <Text key={`pro-${s.id}`} style={[styles.tableCell, data.stage === s.id && styles.activeCellText]}>
-                  {s.protein}%
-                </Text>
-              ))}
-            </View>
-
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, styles.tableCellLabel, { flex: 1.2 }]}>Năng lượng</Text>
-              {STAGES.map(s => (
-                <Text key={`eng-${s.id}`} style={[styles.tableCell, data.stage === s.id && styles.activeCellText]}>
-                  {s.energy}
-                </Text>
-              ))}
-            </View>
-
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, styles.tableCellLabel, { flex: 1.2 }]}>Tỷ lệ ăn</Text>
-              {STAGES.map(s => (
-                <Text key={`feed-${s.id}`} style={[styles.tableCell, data.stage === s.id && styles.activeCellText]}>
-                  {s.feedRatio}
-                </Text>
-              ))}
-            </View>
-
-            <View style={styles.highlightRowBase}>
-              <View style={{ flex: 1.2 }} />
-              {STAGES.map(s => (
-                <View key={`hl-${s.id}`} style={[styles.tableHighlightCol, data.stage === s.id && styles.activeHighlightCol]} />
-              ))}
-            </View>
+          {/* Header */}
+          <View style={styles.compareHeader}>
+            <Text style={[styles.compareColLabel, { flex: 1.5 }]}>Chỉ số</Text>
+            <Text style={styles.compareColLabel}>Tiêu chuẩn</Text>
+            <Text style={styles.compareColLabel}>Cám đang dùng</Text>
+            <Text style={styles.compareColLabel}>Đánh giá</Text>
           </View>
+
+          {/* Protein row */}
+          {(() => {
+            const std = STAGES.find(s => s.id === data.stage)!;
+            const actual = activeFeed ? activeFeed.proteinPct : null;
+            const diff = actual !== null ? actual - std.protein : null;
+            const ok = diff !== null ? (diff >= -2 && diff <= 4) : null;
+            return (
+              <View style={styles.compareRow}>
+                <Text style={[styles.compareCell, { flex: 1.5, fontWeight: '600' }]}>Protein</Text>
+                <Text style={styles.compareCell}>{std.protein}%</Text>
+                <Text style={[styles.compareCell, actual !== null && { fontWeight: '700', color: ok ? COLORS.primary : COLORS.error }]}>
+                  {actual !== null ? `${actual}%` : '—'}
+                </Text>
+                <View style={[styles.compareTagWrap]}>
+                  {ok === null ? <Text style={styles.compareTagNa}>N/A</Text>
+                    : ok ? <Text style={[styles.compareTag, { backgroundColor: '#E8F5E9', color: '#2E7D32' }]}>✓ Tốt</Text>
+                    : <Text style={[styles.compareTag, { backgroundColor: '#FFEBEE', color: '#C62828' }]}>✗ Lệch</Text>}
+                </View>
+              </View>
+            );
+          })()}
+
+          {/* Năng lượng row */}
+          {(() => {
+            const std = STAGES.find(s => s.id === data.stage)!;
+            const actual = activeFeed ? activeFeed.energyKcalPerKg : null;
+            const diff = actual !== null ? actual - std.energy : null;
+            const ok = diff !== null ? (diff >= -150 && diff <= 300) : null;
+            return (
+              <View style={[styles.compareRow, styles.compareRowAlt]}>
+                <Text style={[styles.compareCell, { flex: 1.5, fontWeight: '600' }]}>Năng lượng</Text>
+                <Text style={styles.compareCell}>{std.energy}{' Kcal'}</Text>
+                <Text style={[styles.compareCell, actual !== null && { fontWeight: '700', color: ok ? COLORS.primary : COLORS.error }]}>
+                  {actual !== null ? `${actual} Kcal` : '—'}
+                </Text>
+                <View style={[styles.compareTagWrap]}>
+                  {ok === null ? <Text style={styles.compareTagNa}>N/A</Text>
+                    : ok ? <Text style={[styles.compareTag, { backgroundColor: '#E8F5E9', color: '#2E7D32' }]}>✓ Tốt</Text>
+                    : <Text style={[styles.compareTag, { backgroundColor: '#FFEBEE', color: '#C62828' }]}>✗ Lệch</Text>}
+                </View>
+              </View>
+            );
+          })()}
+
+          {/* Xơ thô row */}
+          {activeFeed && activeFeed.fiberPct > 0 && (() => {
+            const actual = activeFeed.fiberPct;
+            const ok = actual <= 6;
+            return (
+              <View style={styles.compareRow}>
+                <Text style={[styles.compareCell, { flex: 1.5, fontWeight: '600' }]}>Xơ thô</Text>
+                <Text style={styles.compareCell}>{'≤ 6%'}</Text>
+                <Text style={[styles.compareCell, { fontWeight: '700', color: ok ? COLORS.primary : COLORS.error }]}>
+                  {actual}%
+                </Text>
+                <View style={[styles.compareTagWrap]}>
+                  {ok ? <Text style={[styles.compareTag, { backgroundColor: '#E8F5E9', color: '#2E7D32' }]}>✓ Tốt</Text>
+                      : <Text style={[styles.compareTag, { backgroundColor: '#FFF3E0', color: '#E65100' }]}>⚠ Cao</Text>}
+                </View>
+              </View>
+            );
+          })()}
+
+          {!activeFeed && (
+            <View style={styles.compareNoFeed}>
+              <Ionicons name="information-circle-outline" size={18} color={COLORS.textSecondary} />
+              <Text style={styles.compareNoFeedText}>
+                Quét bao bì cám (AI) để so sánh với tiêu chuẩn giai đoạn {data.stage.toUpperCase()}
+              </Text>
+            </View>
+          )}
         </View>
 
       </ScrollView>
@@ -1103,6 +989,42 @@ const styles = StyleSheet.create({
   highlightRowBase: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, flexDirection: 'row', zIndex: 0 },
   tableHighlightCol: { flex: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: 'transparent' },
   activeHighlightCol: { backgroundColor: 'rgba(76, 175, 80, 0.1)', borderColor: COLORS.secondary, borderWidth: 2 },
+
+  // Compare Card
+  compareSubtitle: { fontSize: 13, color: COLORS.textSecondary, marginBottom: 12, marginTop: 2 },
+  compareHeader: {
+    flexDirection: 'row', backgroundColor: '#F0F7F0',
+    paddingVertical: 8, paddingHorizontal: 4,
+    borderRadius: 8, marginBottom: 4,
+  },
+  compareColLabel: {
+    flex: 1, fontSize: 11, fontWeight: '700',
+    color: COLORS.primary, textAlign: 'center',
+  },
+  compareRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+  },
+  compareRowAlt: { backgroundColor: '#FAFAFA' },
+  compareCell: {
+    flex: 1, fontSize: 12, color: COLORS.text,
+    textAlign: 'center',
+  },
+  compareTagWrap: { flex: 1, alignItems: 'center' },
+  compareTag: {
+    fontSize: 11, fontWeight: '700',
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 10, overflow: 'hidden',
+  },
+  compareTagNa: { fontSize: 11, color: COLORS.textSecondary },
+  compareNoFeed: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 8, marginTop: 12,
+    backgroundColor: '#F5F5F5',
+    padding: 12, borderRadius: 8,
+  },
+  compareNoFeedText: { flex: 1, fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
 
   // Load / Error States
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
