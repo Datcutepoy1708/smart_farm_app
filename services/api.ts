@@ -96,6 +96,7 @@ export const deviceApi = {
 export const flockApi = {
   getBarnFlocks: (barnId: number) => api.get(`/flocks/barn/${barnId}`),
   create: (data: any) => api.post('/flocks', data),
+  complete: (id: number) => api.post(`/flocks/${id}/complete`),
 };
 
 // Feed APIs

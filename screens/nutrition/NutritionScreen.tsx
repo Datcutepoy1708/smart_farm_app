@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { feedApi, farmAiApi } from '../../services/api';
+import { feedApi, farmAiApi, flockApi, weightLogApi } from '../../services/api';
 
 interface NutritionData {
   stage: 'starter' | 'grower' | 'finisher';
@@ -70,6 +70,14 @@ export default function NutritionScreen() {
 
   // Cám đang sử dụng
   const [activeFeed, setActiveFeed] = useState<any>(null);
+
+  // Cập nhật Cân nặng TB
+  const [updateWeightModalVisible, setUpdateWeightModalVisible] = useState(false);
+  const [inputWeight, setInputWeight] = useState('');
+  const [savingWeight, setSavingWeight] = useState(false);
+
+  // Trạng thái nút xuất chuồng
+  const [isCompletingFlock, setIsCompletingFlock] = useState(false);
 
   // Phân tích cám
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -133,7 +141,93 @@ export default function NutritionScreen() {
     fetchNutritionData();
   }, [fetchNutritionData]);
 
+  const handleUpdateWeight = async () => {
+    const val = parseFloat(inputWeight.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số cân nặng hợp lệ (lớn hơn 0).');
+      return;
+    }
 
+    try {
+      setSavingWeight(true);
+      // Gửi 1 sample với totalWeight là val, kết quả avgWeight sẽ là val
+      await weightLogApi.record(barnId, { totalWeightKg: val, sampleCount: 1 });
+      setUpdateWeightModalVisible(false);
+      setInputWeight('');
+      await fetchNutritionData();
+      Alert.alert('Thành công', 'Đã cập nhật cân nặng đàn gà.');
+    } catch (err: any) {
+      console.error('Weight update error:', err.response?.data || err.message);
+      Alert.alert('Lỗi', `Không thể cập nhật: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setSavingWeight(false);
+    }
+  };
+
+  const handleCompleteFlock = () => {
+    Alert.alert(
+      'Xác nhận Xuất chuồng',
+      'Đàn gà sẽ được đánh dấu là đã xuất (Completed). Bạn có chắc chắn muốn xuất lứa gà này và chuyển sang tạo lứa mới?',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xuất chuồng',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsCompletingFlock(true);
+              // Lấy flock ID từ data nếu có, nhưng hiện tại backend completeFlock nhận flockId
+              // Trong trường hợp này API getBarnFlocks có thể dùng để tìm ID lứa gà active.
+              const res = await flockApi.getBarnFlocks(barnId);
+              const activeFlock = res.data?.find((f: any) => f.status === 'active');
+              if (!activeFlock) {
+                Alert.alert('Lỗi', 'Không tìm thấy lứa gà đang hoạt động.');
+                return;
+              }
+              await flockApi.complete(activeFlock.id);
+              Alert.alert(
+                'Thành công',
+                'Đã xuất lứa gà. Vui lòng chuyển sang màn hình Tổng quan để nhập lứa mới.',
+                [{ text: 'OK' }] // Thêm điều hướng sang Dashboard hoặc Flock Mgmt sau này nếu cần
+              );
+              await fetchNutritionData(); // Sẽ lỗi hoặc reset data
+            } catch (err) {
+              Alert.alert('Lỗi', 'Không thể xuất chuồng lúc này.');
+            } finally {
+              setIsCompletingFlock(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderUpdateWeightModal = () => (
+    <Modal visible={updateWeightModalVisible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Sửa Cân Nặng TB</Text>
+          <Text style={styles.inputLabel}>Cân nặng (kg/con)</Text>
+          <TextInput
+            style={styles.textInput}
+            keyboardType="decimal-pad"
+            placeholder="VD: 2.5"
+            value={inputWeight}
+            onChangeText={setInputWeight}
+            autoFocus
+          />
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setUpdateWeightModalVisible(false)}>
+              <Text style={styles.modalBtnCancelText}>Hủy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={handleUpdateWeight} disabled={savingWeight}>
+              {savingWeight ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalBtnSaveText}>Lưu</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
   const handleScanFeed = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -590,6 +684,7 @@ export default function NutritionScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {renderUpdateWeightModal()}
       {renderFeedAnalysisModal()}
 
       {/* Header */}
@@ -648,6 +743,24 @@ export default function NutritionScreen() {
           </View>
         )}
 
+        {/* Cảnh báo 45 ngày xuất chuồng */}
+        {data.ageDays >= 45 && (
+          <View style={styles.exportBanner}>
+            <Ionicons name="alert-circle" size={28} color="#C62828" />
+            <View style={styles.exportBannerTextWrap}>
+              <Text style={styles.exportBannerTitle}>Đã đến lúc xuất chuồng!</Text>
+              <Text style={styles.exportBannerDesc}>Đàn gà đã đạt {data.ageDays} ngày tuổi. Hãy chuẩn bị xuất bán và tạo lứa mới.</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.exportBtn}
+              onPress={handleCompleteFlock}
+              disabled={isCompletingFlock}
+            >
+              {isCompletingFlock ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.exportBtnText}>Xuất</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Card 1: Thông tin đàn gà */}
         <View style={styles.card}>
           <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Thông tin đàn gà</Text>
@@ -665,7 +778,12 @@ export default function NutritionScreen() {
             </View>
             <View style={styles.statBox}>
               <Ionicons name="barbell-outline" size={20} color={COLORS.primary} />
-              <Text style={styles.statLabel}>Cân nặng TB</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <Text style={[styles.statLabel, { marginTop: 0, marginRight: 4 }]}>Cân nặng TB</Text>
+                <TouchableOpacity onPress={() => { setInputWeight(data.avgWeightKg.toString()); setUpdateWeightModalVisible(true); }}>
+                  <Ionicons name="create-outline" size={16} color={COLORS.secondary} />
+                </TouchableOpacity>
+              </View>
               <Text style={styles.statValue}>{data.avgWeightKg} kg</Text>
             </View>
           </View>
@@ -1025,6 +1143,24 @@ const styles = StyleSheet.create({
     padding: 12, borderRadius: 8,
   },
   compareNoFeedText: { flex: 1, fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
+
+  // Export Banner
+  exportBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    padding: 16, borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1, borderColor: '#FFCDD2',
+  },
+  exportBannerTextWrap: { flex: 1, marginLeft: 12, marginRight: 8 },
+  exportBannerTitle: { fontSize: 15, fontWeight: 'bold', color: '#B71C1C', marginBottom: 2 },
+  exportBannerDesc: { fontSize: 12, color: '#C62828', lineHeight: 18 },
+  exportBtn: {
+    backgroundColor: '#C62828',
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 8,
+  },
+  exportBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
 
   // Load / Error States
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
