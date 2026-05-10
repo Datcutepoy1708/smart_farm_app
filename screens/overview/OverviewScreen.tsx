@@ -64,10 +64,11 @@ export default function OverviewScreen() {
   const [newBarnCapacity, setNewBarnCapacity] = useState('');
 
   // Modal State cho Flock/Mortality
-  const [flockModalType, setFlockModalType] = useState<'create' | 'mortality' | null>(null);
+  const [flockModalType, setFlockModalType] = useState<'create' | 'mortality' | 'add' | null>(null);
   const [selectedBarnId, setSelectedBarnId] = useState<number | null>(null);
   const [newFlockCount, setNewFlockCount] = useState('');
   const [deadCountInput, setDeadCountInput] = useState('');
+  const [addCountInput, setAddCountInput] = useState('');
 
   const fetchOverview = useCallback(async (isRefresh = false) => {
     try {
@@ -222,6 +223,28 @@ export default function OverviewScreen() {
     }
   };
 
+  const handleAddChickens = async () => {
+    if (!selectedBarnId || !addCountInput) return;
+    const count = parseInt(addCountInput, 10);
+    if (isNaN(count) || count <= 0) {
+      Alert.alert('Lỗi', 'Số lượng gà nhập thêm phải lớn hơn 0.');
+      return;
+    }
+
+    try {
+      await flockApi.addChickens(selectedBarnId, {
+        addCount: count,
+      });
+      setFlockModalType(null);
+      setAddCountInput('');
+      fetchOverview();
+      Alert.alert('Thành công', `Đã nhập thêm ${count} con thành công!`);
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Lỗi', 'Không thể nhập thêm gà lúc này.');
+    }
+  };
+
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'active':
@@ -260,7 +283,7 @@ export default function OverviewScreen() {
        </View>
 
        {/* Các nút hành động nhanh */}
-       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 }}>
          {item.status === 'empty' ? (
            <TouchableOpacity 
              style={[styles.modalBtnSave, { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
@@ -272,15 +295,26 @@ export default function OverviewScreen() {
              <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>+ Nhập lứa mới</Text>
            </TouchableOpacity>
          ) : item.status === 'active' ? (
-           <TouchableOpacity 
-             style={[{ backgroundColor: COLORS.danger, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
-             onPress={() => {
-               setSelectedBarnId(item.id);
-               setFlockModalType('mortality');
-             }}
-           >
-             <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>- Ghi nhận hao hụt</Text>
-           </TouchableOpacity>
+           <>
+             <TouchableOpacity 
+               style={[styles.modalBtnSave, { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
+               onPress={() => {
+                 setSelectedBarnId(item.id);
+                 setFlockModalType('add');
+               }}
+             >
+               <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>+ Nhập thêm</Text>
+             </TouchableOpacity>
+             <TouchableOpacity 
+               style={[{ backgroundColor: COLORS.danger, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
+               onPress={() => {
+                 setSelectedBarnId(item.id);
+                 setFlockModalType('mortality');
+               }}
+             >
+               <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>- Hao hụt</Text>
+             </TouchableOpacity>
+           </>
          ) : null}
        </View>
     </View>
@@ -437,12 +471,18 @@ export default function OverviewScreen() {
         </View>
       </Modal>
 
-      {/* Flock & Mortality Modal */}
+      {/* Flock, Add & Mortality Modal */}
       <Modal visible={flockModalType !== null} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={[styles.modalTitle, flockModalType === 'mortality' && { color: COLORS.danger }]}>
-              {flockModalType === 'create' ? 'Nhập Lứa Gà Mới' : 'Ghi Nhận Hao Hụt (Gà Chết)'}
+            <Text style={[
+              styles.modalTitle,
+              flockModalType === 'mortality' && { color: COLORS.danger },
+              flockModalType === 'add' && { color: COLORS.primary },
+            ]}>
+              {flockModalType === 'create' ? 'Nhập Lứa Gà Mới'
+                : flockModalType === 'add' ? 'Nhập Thêm Gà Vào Chuồng'
+                : 'Ghi Nhận Hao Hụt (Gà Chết)'}
             </Text>
 
             {flockModalType === 'create' ? (
@@ -454,6 +494,17 @@ export default function OverviewScreen() {
                   onChangeText={setNewFlockCount}
                   keyboardType="numeric"
                   placeholder="VD: 500"
+                />
+              </>
+            ) : flockModalType === 'add' ? (
+              <>
+                <Text style={styles.inputLabel}>Số lượng gà nhập thêm (con)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={addCountInput}
+                  onChangeText={setAddCountInput}
+                  keyboardType="numeric"
+                  placeholder="VD: 50"
                 />
               </>
             ) : (
@@ -476,6 +527,7 @@ export default function OverviewScreen() {
                   setFlockModalType(null);
                   setNewFlockCount('');
                   setDeadCountInput('');
+                  setAddCountInput('');
                 }}
               >
                 <Text style={styles.modalBtnCancelText}>Hủy</Text>
@@ -483,9 +535,15 @@ export default function OverviewScreen() {
               <TouchableOpacity
                 style={[
                   styles.modalBtn,
-                  flockModalType === 'create' ? styles.modalBtnSave : { backgroundColor: COLORS.danger },
+                  flockModalType === 'mortality'
+                    ? { backgroundColor: COLORS.danger }
+                    : styles.modalBtnSave,
                 ]}
-                onPress={flockModalType === 'create' ? handleCreateFlock : handleLogMortality}
+                onPress={
+                  flockModalType === 'create' ? handleCreateFlock
+                  : flockModalType === 'add' ? handleAddChickens
+                  : handleLogMortality
+                }
               >
                 <Text style={styles.modalBtnSaveText}>Xác nhận</Text>
               </TouchableOpacity>

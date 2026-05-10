@@ -98,6 +98,7 @@ export const flockApi = {
   create: (data: { barnId: number; initialCount: number; batchCode?: string }) => api.post('/flocks', data),
   complete: (id: number) => api.post(`/flocks/${id}/complete`),
   logMortality: (barnId: number, data: { deadCount: number }) => api.post(`/flocks/barn/${barnId}/mortality`, data),
+  addChickens: (barnId: number, data: { addCount: number }) => api.post(`/flocks/barn/${barnId}/add`, data),
 };
 
 // Feed APIs
