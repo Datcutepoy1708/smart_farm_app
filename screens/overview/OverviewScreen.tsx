@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../store/authStore';
-import { barnApi } from '../../services/api';
+import { barnApi, flockApi } from '../../services/api';
 import { COLORS, SOCKET_URL } from '../../constants/config';
 import { useNavigation } from '@react-navigation/native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
@@ -57,11 +57,17 @@ export default function OverviewScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal State
+  // Modal State cho tạo chuồng
   const [modalVisible, setModalVisible] = useState(false);
   const [newBarnName, setNewBarnName] = useState('');
   const [newBarnLocation, setNewBarnLocation] = useState('');
   const [newBarnCapacity, setNewBarnCapacity] = useState('');
+
+  // Modal State cho Flock/Mortality
+  const [flockModalType, setFlockModalType] = useState<'create' | 'mortality' | null>(null);
+  const [selectedBarnId, setSelectedBarnId] = useState<number | null>(null);
+  const [newFlockCount, setNewFlockCount] = useState('');
+  const [deadCountInput, setDeadCountInput] = useState('');
 
   const fetchOverview = useCallback(async (isRefresh = false) => {
     try {
@@ -171,6 +177,51 @@ export default function OverviewScreen() {
     }
   };
 
+  const handleCreateFlock = async () => {
+    if (!selectedBarnId || !newFlockCount) return;
+    const count = parseInt(newFlockCount, 10);
+    if (isNaN(count) || count <= 0) {
+      Alert.alert('Lỗi', 'Số lượng gà nhập phải lớn hơn 0.');
+      return;
+    }
+
+    try {
+      await flockApi.create({
+        barnId: selectedBarnId,
+        initialCount: count,
+      });
+      setFlockModalType(null);
+      setNewFlockCount('');
+      fetchOverview();
+      Alert.alert('Thành công', 'Đã nhập lứa gà mới thành công!');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Lỗi', 'Không thể tạo lứa gà mới.');
+    }
+  };
+
+  const handleLogMortality = async () => {
+    if (!selectedBarnId || !deadCountInput) return;
+    const count = parseInt(deadCountInput, 10);
+    if (isNaN(count) || count <= 0) {
+      Alert.alert('Lỗi', 'Số lượng gà chết phải lớn hơn 0.');
+      return;
+    }
+
+    try {
+      await flockApi.logMortality(selectedBarnId, {
+        deadCount: count,
+      });
+      setFlockModalType(null);
+      setDeadCountInput('');
+      fetchOverview();
+      Alert.alert('Thành công', 'Đã ghi nhận hao hụt thành công!');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Lỗi', 'Không thể ghi nhận hao hụt lúc này.');
+    }
+  };
+
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'active':
@@ -187,7 +238,16 @@ export default function OverviewScreen() {
     <TouchableOpacity 
       style={styles.barnCard} 
       activeOpacity={0.8}
-      onPress={() => Alert.alert('Thông báo', 'Chi tiết chuồng (sắp ra mắt)')}
+      onPress={() => {
+        setSelectedBarnId(item.id);
+        if (item.status === 'empty') {
+          setFlockModalType('create');
+        } else if (item.status === 'active') {
+          setFlockModalType('mortality');
+        } else {
+          Alert.alert('Thông báo', 'Chi tiết chuồng (sắp ra mắt)');
+        }
+      }}
     >
        <View style={styles.barnHeaderRow}>
          <View style={styles.barnTitleWrap}>
@@ -359,6 +419,63 @@ export default function OverviewScreen() {
                 onPress={handleCreateBarn}
               >
                 <Text style={styles.modalBtnSaveText}>Tạo Mới</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Flock & Mortality Modal */}
+      <Modal visible={flockModalType !== null} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={[styles.modalTitle, flockModalType === 'mortality' && { color: COLORS.danger }]}>
+              {flockModalType === 'create' ? 'Nhập Lứa Gà Mới' : 'Ghi Nhận Hao Hụt (Gà Chết)'}
+            </Text>
+
+            {flockModalType === 'create' ? (
+              <>
+                <Text style={styles.inputLabel}>Số lượng gà nhập (con)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newFlockCount}
+                  onChangeText={setNewFlockCount}
+                  keyboardType="numeric"
+                  placeholder="VD: 500"
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.inputLabel}>Số lượng gà chết (con)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={deadCountInput}
+                  onChangeText={setDeadCountInput}
+                  keyboardType="numeric"
+                  placeholder="VD: 2"
+                />
+              </>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => {
+                  setFlockModalType(null);
+                  setNewFlockCount('');
+                  setDeadCountInput('');
+                }}
+              >
+                <Text style={styles.modalBtnCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  flockModalType === 'create' ? styles.modalBtnSave : { backgroundColor: COLORS.danger },
+                ]}
+                onPress={flockModalType === 'create' ? handleCreateFlock : handleLogMortality}
+              >
+                <Text style={styles.modalBtnSaveText}>Xác nhận</Text>
               </TouchableOpacity>
             </View>
           </View>
