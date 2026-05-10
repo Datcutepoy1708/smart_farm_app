@@ -235,20 +235,7 @@ export default function OverviewScreen() {
   };
 
   const renderBarnCard = ({ item }: { item: BarnSummary }) => (
-    <TouchableOpacity 
-      style={styles.barnCard} 
-      activeOpacity={0.8}
-      onPress={() => {
-        setSelectedBarnId(item.id);
-        if (item.status === 'empty') {
-          setFlockModalType('create');
-        } else if (item.status === 'active') {
-          setFlockModalType('mortality');
-        } else {
-          Alert.alert('Thông báo', 'Chi tiết chuồng (sắp ra mắt)');
-        }
-      }}
-    >
+    <View style={styles.barnCard}>
        <View style={styles.barnHeaderRow}>
          <View style={styles.barnTitleWrap}>
            <Text style={styles.barnEmoji}>🏠</Text>
@@ -271,7 +258,32 @@ export default function OverviewScreen() {
            🐔 {Number(item.chickenCount).toLocaleString()} con
          </Text>
        </View>
-    </TouchableOpacity>
+
+       {/* Các nút hành động nhanh */}
+       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+         {item.status === 'empty' ? (
+           <TouchableOpacity 
+             style={[styles.modalBtnSave, { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
+             onPress={() => {
+               setSelectedBarnId(item.id);
+               setFlockModalType('create');
+             }}
+           >
+             <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>+ Nhập lứa mới</Text>
+           </TouchableOpacity>
+         ) : item.status === 'active' ? (
+           <TouchableOpacity 
+             style={[{ backgroundColor: COLORS.danger, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }]}
+             onPress={() => {
+               setSelectedBarnId(item.id);
+               setFlockModalType('mortality');
+             }}
+           >
+             <Text style={[styles.modalBtnSaveText, { fontSize: 13 }]}>- Ghi nhận hao hụt</Text>
+           </TouchableOpacity>
+         ) : null}
+       </View>
+    </View>
   );
 
   if (loading && !refreshing) {
